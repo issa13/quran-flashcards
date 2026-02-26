@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quran Flashcards (Pure JS)</title>
+  <style>
+    :root { --maxw: 560px; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: #f6f7f9;
+      color: #111;
+    }
+
+    .wrap {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 16px;
+      gap: 12px;
+    }
+
+    .panel {
+      width: min(94vw, var(--maxw));
+      background: #fff;
+      border: 1px solid rgba(0,0,0,0.06);
+      border-radius: 14px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+      padding: 14px;
+      box-sizing: border-box;
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 160px;
+      flex: 1;
+    }
+
+    .field label {
+      font-size: 12px;
+      color: #666;
+    }
+
+    select, input[type="number"] {
+      padding: 10px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(0,0,0,0.15);
+      outline: none;
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 14px;
+      background: #fff;
+    }
+
+    .btn {
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(0,0,0,0.15);
+      background: #fff;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .btn.primary {
+      background: #2563eb;
+      color: #fff;
+      border-color: #2563eb;
+    }
+
+    .btn.good {
+      background: #16a34a;
+      color: #fff;
+      border-color: #16a34a;
+    }
+
+    .btn.bad {
+      background: #dc2626;
+      color: #fff;
+      border-color: #dc2626;
+    }
+
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .hint {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #777;
+      text-align: center;
+    }
+
+    .topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .score {
+      font-weight: 800;
+      font-size: 14px;
+      padding: 8px 10px;
+      border-radius: 12px;
+      background: #f1f5f9;
+      border: 1px solid rgba(0,0,0,0.06);
+      white-space: nowrap;
+    }
+
+    /* Progress bar */
+    .progress-wrap {
+      width: min(94vw, var(--maxw));
+      height: 10px;
+      border-radius: 999px;
+      background: #e5e7eb;
+      overflow: hidden;
+      border: 1px solid rgba(0,0,0,0.06);
+    }
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: #2563eb;
+      transition: width 0.1s linear;
+    }
+
+    /* Flashcard */
+    .flashcard-wrap {
+      width: min(94vw, var(--maxw));
+      height: min(58vh, 340px);
+    }
+
+    .flashcard {
+      width: 100%;
+      height: 100%;
+      perspective: 1200px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .inner {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      border-radius: 18px;
+      transition: transform 0.6s;
+      transform-style: preserve-3d;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.12);
+      background: #fff;
+    }
+
+    .flashcard.is-flipped .inner { transform: rotateY(180deg); }
+
+    .face {
+      position: absolute;
+      inset: 0;
+      border-radius: 18px;
+      backface-visibility: hidden;
+      border: 1px solid rgba(0,0,0,0.06);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      box-sizing: border-box;
+      background: #fff;
+    }
+
+    .back { transform: rotateY(180deg); }
+
+    .content {
+      width: 100%;
+      text-align: center;
+      word-wrap: break-word;
+      line-height: 1.8;
+    }
+
+    .title {
+      font-size: 13px;
+      color: #777;
+      margin-bottom: 8px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+
+    .text {
+      font-size: 18px;
+      font-weight: 750;
+    }
+
+    .sub {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #777;
+    }
+
+    .status {
+      font-size: 12px;
+      color: #666;
+      text-align: center;
+      min-height: 16px;
+      width: min(94vw, var(--maxw));
+    }
+
+    .back-actions {
+      margin-top: 14px;
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+.footer-badge {
+  margin-top: 12px;
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 20px;
+  background: #f1f5f9;
+  border: 1px solid rgba(0,0,0,0.05);
+  color: #555;
+  text-align: center;
+}
+
+    @media (max-width: 380px) {
+      .text { font-size: 16px; }
+      .field { min-width: 140px; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+
+    <div class="panel">
+      <div class="topline">
+        <div style="font-weight:900;">Quran Flashcards</div>
+        <div id="scoreBox" class="score">Score: 0 / 0</div>
+      </div>
+
+      <!-- Row 1: Type + Timer -->
+      <div class="row" style="margin-top: 12px;">
+        <div class="field" style="flex: 2;">
+          <label for="qTypeSelect">Question type</label>
+          <select id="qTypeSelect">
+            <option value="first">Guess the first ayah (of the page)</option>
+            <option value="last">Guess the last ayah (of the page)</option>
+            <option value="previous">Guess the previous ayah</option>
+            <option value="surah">Guess the surah</option>
+            <option value="pageNumber">Guess page number</option>
+            <option value="ayahCount">Guess number of ayahs in the page (question = first ayah)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="timerSelect">Timer</label>
+          <select id="timerSelect">
+            <option value="0">No timer</option>
+            <option value="5">5 seconds</option>
+            <option value="10">10 seconds</option>
+            <option value="12">12 seconds</option>
+            <option value="15" selected>15 seconds</option>
+            <option value="20">20 seconds</option>
+            <option value="30">30 seconds</option>
+            <option value="45">45 seconds</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Row 2: Page range -->
+      <div class="row" style="margin-top: 10px;">
+        <div class="field">
+          <label for="pageMin">Page from (1–604)</label>
+          <input id="pageMin" type="number" min="1" max="604" value="1" />
+        </div>
+
+        <div class="field">
+          <label for="pageMax">Page to (1–604)</label>
+          <input id="pageMax" type="number" min="1" max="604" value="604" />
+        </div>
+      </div>
+
+      <!-- Row 3: Presets -->
+      <div class="row" style="margin-top: 10px;">
+        <button class="btn" id="presetAll">1–604</button>
+        <button class="btn" id="preset100">1–100</button>
+        <button class="btn" id="presetJuz1">Juz 1 (1–21)</button>
+        <button class="btn" id="presetJuz30">Juz 30 (582–604)</button>
+      </div>
+
+      <div class="hint">Tip: smaller ranges = more repetition (better memorization).</div>
+    </div>
+
+    <div class="progress-wrap" aria-label="Countdown timer">
+      <div id="progressBar" class="progress-bar"></div>
+    </div>
+
+    <div class="flashcard-wrap">
+      <div id="flashcard" class="flashcard" tabindex="0" aria-label="Flashcard (click to flip)">
+        <div class="inner">
+          <div class="face front">
+            <div class="content">
+              <div class="title" id="frontTitle">Question</div>
+              <div id="qText" class="text">Choose type + range, then press Generate</div>
+              <div class="sub">Tap / Click to flip (stops the timer)</div>
+            </div>
+          </div>
+
+          <div class="face back">
+            <div class="content">
+              <div class="title" id="backTitle">Answer</div>
+              <div id="aText" class="text">—</div>
+
+              <div class="back-actions">
+                <button id="btnRight" class="btn good" disabled>✅ Right</button>
+                <button id="btnWrong" class="btn bad" disabled>❌ Wrong</button>
+              </div>
+
+              <div class="sub">Mark your result to unlock Generate</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <button id="generateBtn" class="btn primary" style="width: min(94vw, var(--maxw));">
+      Generate
+    </button>
+
+    <div id="status" class="status" aria-live="polite"></div>
+  </div>
+
+<div class="footer-badge">
+  © 2026 Quran Flashcards — Built with ❤️ by <strong>Issa Abdulaziz</strong>
+</div>
+
+  <script>
+    const API_BASE = "https://api.alquran.cloud/v1/";
+    const EDITION = "quran-uthmani";
+    const QURAN_MIN_PAGE = 1;
+    const QURAN_MAX_PAGE = 604;
+
+    const flashcard = document.getElementById("flashcard");
+    const generateBtn = document.getElementById("generateBtn");
+    const qText = document.getElementById("qText");
+    const aText = document.getElementById("aText");
+    const statusEl = document.getElementById("status");
+    const progressBar = document.getElementById("progressBar");
+
+    const qTypeSelect = document.getElementById("qTypeSelect");
+    const timerSelect = document.getElementById("timerSelect");
+    const pageMinEl = document.getElementById("pageMin");
+    const pageMaxEl = document.getElementById("pageMax");
+
+    const presetAll = document.getElementById("presetAll");
+    const preset100 = document.getElementById("preset100");
+    const presetJuz1 = document.getElementById("presetJuz1");
+    const presetJuz30 = document.getElementById("presetJuz30");
+
+    const btnRight = document.getElementById("btnRight");
+    const btnWrong = document.getElementById("btnWrong");
+    const scoreBox = document.getElementById("scoreBox");
+    const frontTitle = document.getElementById("frontTitle");
+    const backTitle = document.getElementById("backTitle");
+
+    // State
+    let timerInterval = null;
+    let timerStart = 0;
+    let timerDurationMs = 12000;
+
+    let answeredThisCard = false;
+    let hasActiveCard = false; // IMPORTANT: prevents disabling Generate before first Generate
+
+    let totalQuestions = 0;
+    let correctQuestions = 0;
+
+    function setStatus(msg) { statusEl.textContent = msg || ""; }
+    function setFlipped(flipped) { flashcard.classList.toggle("is-flipped", flipped); }
+    function isFlipped() { return flashcard.classList.contains("is-flipped"); }
+    function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
+    function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+    function clean(s) { return (s || "").toString().trim(); }
+
+    function updateScoreUI() {
+      scoreBox.textContent = `Score: ${correctQuestions} / ${totalQuestions}`;
+    }
+
+    function getRange() {
+      let minP = parseInt(pageMinEl.value, 10);
+      let maxP = parseInt(pageMaxEl.value, 10);
+
+      if (Number.isNaN(minP)) minP = QURAN_MIN_PAGE;
+      if (Number.isNaN(maxP)) maxP = QURAN_MAX_PAGE;
+
+      minP = clamp(minP, QURAN_MIN_PAGE, QURAN_MAX_PAGE);
+      maxP = clamp(maxP, QURAN_MIN_PAGE, QURAN_MAX_PAGE);
+
+      if (minP > maxP) [minP, maxP] = [maxP, minP];
+
+      pageMinEl.value = minP;
+      pageMaxEl.value = maxP;
+      return { minP, maxP };
+    }
+
+    function getTimerSeconds() {
+      const sec = parseInt(timerSelect.value, 10);
+      return Number.isNaN(sec) ? 12 : sec;
+    }
+
+    // Timer
+    function stopTimer() {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+      progressBar.style.width = "0%";
+    }
+
+    function startTimer() {
+      const sec = getTimerSeconds();
+      if (sec <= 0) {
+        stopTimer();
+        return;
+      }
+
+      timerDurationMs = sec * 1000;
+
+      stopTimer();
+      timerStart = Date.now();
+      progressBar.style.width = "0%";
+
+      timerInterval = setInterval(() => {
+        const elapsed = Date.now() - timerStart;
+        const pct = clamp((elapsed / timerDurationMs) * 100, 0, 100);
+        progressBar.style.width = pct + "%";
+
+        if (elapsed >= timerDurationMs) {
+          stopTimer();
+
+          if (!hasActiveCard) return;
+
+          if (!isFlipped()) {
+            setFlipped(true);
+          }
+
+          lockGenerateUntilMarked();
+          enableMarkButtons(true);
+          setStatus("Time’s up — mark ✅ or ❌ to continue.");
+        }
+      }, 100);
+    }
+
+    // Generate lock logic
+    function lockGenerateUntilMarked() {
+      generateBtn.disabled = true;
+    }
+    function unlockGenerateAfterMarked() {
+      generateBtn.disabled = false;
+    }
+
+    // Stop timer + lock generate when user flips (only if card exists)
+    function onUserFlip() {
+      if (!hasActiveCard) return;
+
+      if (isFlipped()) {
+        stopTimer();
+        lockGenerateUntilMarked();
+        enableMarkButtons(true);
+        setStatus("Mark ✅ or ❌ to continue.");
+      }
+    }
+
+    // API
+    async function fetchPageAyahs(page) {
+      const url = `${API_BASE}page/${page}/${EDITION}`;
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP error");
+      const json = await res.json();
+      return json?.data?.ayahs || [];
+    }
+
+    function getSurahInfoFromAyah(ayah) {
+      const surah = ayah?.surah || {};
+      return {
+        name: surah?.name || "Unknown Surah",
+        englishName: surah?.englishName || "",
+        number: surah?.number || ""
+      };
+    }
+
+    function buildQA(ayahs, type, page) {
+      if (!ayahs || ayahs.length < 2) return null;
+
+      const first = ayahs[0];
+      const last = ayahs[ayahs.length - 1];
+
+      frontTitle.textContent = "Question";
+      backTitle.textContent = "Answer";
+
+      if (type === "first") {
+        const candidate = ayahs[randInt(1, ayahs.length - 1)];
+        return { q: clean(candidate.text), a: clean(first.text), label: "Guess first ayah" };
+      }
+
+      if (type === "last") {
+        const candidate = ayahs[randInt(0, ayahs.length - 2)];
+        return { q: clean(candidate.text), a: clean(last.text), label: "Guess last ayah" };
+      }
+
+      if (type === "previous") {
+        const idx = randInt(1, ayahs.length - 1);
+        return { q: clean(ayahs[idx].text), a: clean(ayahs[idx - 1].text), label: "Guess previous ayah" };
+      }
+
+      if (type === "surah") {
+        const candidate = ayahs[randInt(0, ayahs.length - 1)];
+        const info = getSurahInfoFromAyah(candidate);
+        frontTitle.textContent = "Question (Guess the Surah)";
+        backTitle.textContent = "Surah";
+        const answer = info.englishName
+          ? `${info.name} — ${info.englishName} (No. ${info.number})`
+          : `${info.name} (No. ${info.number})`;
+        return { q: clean(candidate.text), a: answer, label: "Guess surah" };
+      }
+
+      if (type === "pageNumber") {
+        const candidate = ayahs[randInt(0, ayahs.length - 1)];
+        frontTitle.textContent = "Question (Guess the Page Number)";
+        backTitle.textContent = "Page Number";
+        return { q: clean(candidate.text), a: String(page), label: "Guess page number" };
+      }
+
+      if (type === "ayahCount") {
+        frontTitle.textContent = "Question (How many ayahs on this page?)";
+        backTitle.textContent = "Number of Ayahs";
+        return { q: clean(first.text), a: String(ayahs.length), label: "Guess ayah count" };
+      }
+
+      return null;
+    }
+
+    // Marking
+    function enableMarkButtons(enabled) {
+      const canEnable = enabled && !answeredThisCard && (aText.textContent && aText.textContent !== "—");
+      btnRight.disabled = !canEnable;
+      btnWrong.disabled = !canEnable;
+    }
+
+    function lockMarkButtons() {
+      btnRight.disabled = true;
+      btnWrong.disabled = true;
+    }
+
+    function markAnswer(isCorrect) {
+      if (answeredThisCard) return;
+      answeredThisCard = true;
+
+      totalQuestions += 1;
+      if (isCorrect) correctQuestions += 1;
+
+      updateScoreUI();
+      lockMarkButtons();
+      unlockGenerateAfterMarked();
+
+      setStatus(isCorrect ? "Marked: ✅ Right" : "Marked: ❌ Wrong");
+    }
+
+    btnRight.addEventListener("click", (e) => {
+      e.stopPropagation();
+      markAnswer(true);
+    });
+
+    btnWrong.addEventListener("click", (e) => {
+      e.stopPropagation();
+      markAnswer(false);
+    });
+
+    // Generate flow
+    async function generate() {
+      try {
+        const type = qTypeSelect.value;
+        const { minP, maxP } = getRange();
+        const page = randInt(minP, maxP);
+
+        setStatus("Loading...");
+        generateBtn.disabled = true;
+
+        answeredThisCard = false;
+        hasActiveCard = false;
+        lockMarkButtons();
+        setFlipped(false);
+        stopTimer();
+
+        const ayahs = await fetchPageAyahs(page);
+        const qa = buildQA(ayahs, type, page);
+
+        if (!qa || !qa.q || !qa.a) {
+          qText.textContent = "No question found.";
+          aText.textContent = "Try again.";
+          setStatus("Could not generate a valid card. Try again.");
+          generateBtn.disabled = false;
+          return;
+        }
+
+        qText.textContent = qa.q;
+        aText.textContent = qa.a;
+        hasActiveCard = true;
+
+        const sec = getTimerSeconds();
+        const timerText = sec <= 0 ? "No timer" : `${sec}s`;
+
+        setStatus(`Ready. Type: ${qa.label} | Timer: ${timerText}`);
+        generateBtn.disabled = false;
+
+        startTimer();
+      } catch (err) {
+        qText.textContent = "Network or API error.";
+        aText.textContent = "Please try again.";
+        setStatus("Failed to load from API (maybe CORS or network).");
+        generateBtn.disabled = false;
+      }
+    }
+
+    // Flip handlers
+    flashcard.addEventListener("click", () => {
+      flashcard.classList.toggle("is-flipped");
+      onUserFlip();
+    });
+
+    flashcard.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        flashcard.classList.toggle("is-flipped");
+        onUserFlip();
+      }
+    });
+
+    // Presets
+    presetAll.addEventListener("click", () => { pageMinEl.value = 1; pageMaxEl.value = 604; });
+    preset100.addEventListener("click", () => { pageMinEl.value = 1; pageMaxEl.value = 100; });
+    presetJuz1.addEventListener("click", () => { pageMinEl.value = 1; pageMaxEl.value = 21; });
+    presetJuz30.addEventListener("click", () => { pageMinEl.value = 582; pageMaxEl.value = 604; });
+
+    // If timer option changes, stop current timer (so it doesn't feel inconsistent)
+    timerSelect.addEventListener("change", () => {
+      // Only stop timer on active front side; next Generate will use the new value
+      stopTimer();
+    });
+
+    generateBtn.addEventListener("click", generate);
+
+    updateScoreUI();
+  </script>
+</body>
+</html>
