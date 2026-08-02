@@ -174,7 +174,7 @@ statsCloseBtn.addEventListener("click", () => hideModal(statsModal));
 statsModal.addEventListener("click", (e) => { if (e.target === statsModal) hideModal(statsModal); });
 
 newSessionNameInput.addEventListener("input", () => {
-  newSessionBtn.style.display = newSessionNameInput.value.trim() ? "" : "none";
+  newSessionBtn.disabled = !newSessionNameInput.value.trim();
 });
 
 newSessionNameInput.addEventListener("keydown", (e) => {
