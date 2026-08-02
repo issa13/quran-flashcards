@@ -187,14 +187,18 @@ async function renameSession(sessionId, title) {
 }
 
 // -------- attempts sync --------
-async function recordAttempt({ questionType, page, isCorrect, sessionId }) {
+// Uses the record_attempt() RPC (see supabase-schema.sql) so the
+// attempt insert and widening the session's stored page range happen
+// in one atomic round trip.
+async function recordAttempt({ questionType, page, isCorrect, sessionId, rangeMin, rangeMax }) {
   if (!sb || !currentUser) return;
-  const { error } = await sb.from("attempts").insert({
-    user_id: currentUser.id,
-    session_id: sessionId || null,
-    question_type: questionType,
-    page,
-    is_correct: isCorrect,
+  const { error } = await sb.rpc("record_attempt", {
+    p_session_id: sessionId || null,
+    p_question_type: questionType,
+    p_page: page,
+    p_is_correct: isCorrect,
+    p_range_min: rangeMin ?? null,
+    p_range_max: rangeMax ?? null,
   });
   if (error) console.error("recordAttempt error", error);
 }

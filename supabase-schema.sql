@@ -49,6 +49,14 @@ create table if not exists public.sessions (
   created_at timestamptz not null default now()
 );
 
+-- range_min/range_max track the widest page range this session was
+-- ever quizzed on (see record_attempt() below, which widens them on
+-- every answer) — this is the *configured* range (e.g. "من 2 إلى 49"
+-- for سورة البقرة), not just whichever pages happened to come up.
+alter table public.sessions
+  add column if not exists range_min int,
+  add column if not exists range_max int;
+
 alter table public.sessions enable row level security;
 
 drop policy if exists "Users manage their own sessions" on public.sessions;
@@ -111,7 +119,42 @@ create index if not exists attempts_user_created_idx
 create index if not exists attempts_session_idx
   on public.attempts (session_id);
 
--- 5) Backfill: give existing users (from before sessions existed) a
+-- 5) record_attempt(): inserts the attempt AND widens the session's
+--    range_min/range_max in one atomic call (see supabase-client.js).
+--    security definer so it can write both tables in one round trip,
+--    but every write is still pinned to auth.uid() — a user can only
+--    ever record or widen their own rows.
+create or replace function public.record_attempt(
+  p_session_id bigint,
+  p_question_type text,
+  p_page int,
+  p_is_correct boolean,
+  p_range_min int default null,
+  p_range_max int default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.attempts (user_id, session_id, question_type, page, is_correct)
+  values (auth.uid(), p_session_id, p_question_type, p_page, p_is_correct);
+
+  if p_session_id is not null and p_range_min is not null and p_range_max is not null then
+    -- least()/greatest() ignore NULLs, so this also seeds the very
+    -- first value correctly (range_min/range_max start out NULL).
+    update public.sessions
+    set range_min = least(range_min, p_range_min),
+        range_max = greatest(range_max, p_range_max)
+    where id = p_session_id and user_id = auth.uid();
+  end if;
+end;
+$$;
+
+grant execute on function public.record_attempt(bigint, text, int, boolean, int, int) to authenticated;
+
+-- 6) Backfill: give existing users (from before sessions existed) a
 --    default session and attach their orphaned attempts to it.
 --    No-op on a fresh project (nothing to backfill).
 do $$
@@ -136,7 +179,7 @@ begin
   end loop;
 end $$;
 
--- 6) Auto-create a profile, a first session, and settings whenever a
+-- 7) Auto-create a profile, a first session, and settings whenever a
 --    new auth user signs up.
 create or replace function public.handle_new_user()
 returns trigger as $$
@@ -162,7 +205,7 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
--- 7) "My sessions" — each user's own sessions with live totals.
+-- 8) "My sessions" — each user's own sessions with live totals.
 --    The where-clause restricts results to the caller even though the
 --    view itself runs with owner privileges (bypassing RLS on the
 --    underlying tables), so the filter has to be explicit here.
@@ -172,45 +215,62 @@ select
   s.user_id,
   s.title,
   s.is_public,
+  s.range_min,
+  s.range_max,
   s.created_at,
   count(a.id) as total_answers,
   count(a.id) filter (where a.is_correct) as total_correct,
-  min(a.page) as range_min,
-  max(a.page) as range_max,
   max(a.created_at) as last_active
 from public.sessions s
 left join public.attempts a on a.session_id = s.id
 where s.user_id = auth.uid()
-group by s.id, s.user_id, s.title, s.is_public, s.created_at
+group by s.id, s.user_id, s.title, s.is_public, s.range_min, s.range_max, s.created_at
 order by s.created_at desc;
 
--- 8) Retire the old whole-profile leaderboard view — replaced by the
+-- 9) Retire the old whole-profile leaderboard view — replaced by the
 --    per-session one below.
 drop view if exists public.leaderboard;
 
--- 9) Public leaderboard, per session. Ranking uses a Wilson score
---    lower bound computed client-side (auth-ui.js) so a small sample
---    like 3/3 (100%) can't outrank a large one like 74/75 (98.7%).
+-- 10) Public leaderboard, per session. Ranking is computed
+--     client-side (auth-ui.js) from accuracy (Wilson score lower
+--     bound, so a small sample like 3/3 (100%) can't outrank a large
+--     one like 74/75 (98.7%)), question count (baked into that same
+--     bound), and page range breadth (range_min/range_max below,
+--     falling back to attempts' min/max page for older sessions
+--     recorded before this column existed) — a session quizzed
+--     across a wide span of the Mushaf ranks above an equally-
+--     accurate one that stuck to a handful of pages.
 create or replace view public.session_leaderboard as
 select
   s.id as session_id,
   s.user_id,
   p.display_name,
   s.title,
+  s.range_min,
+  s.range_max,
   s.created_at as session_created_at,
   count(a.id) as total_answers,
   count(a.id) filter (where a.is_correct) as total_correct,
   case when count(a.id) = 0 then 0
        else round(100.0 * count(a.id) filter (where a.is_correct) / count(a.id), 1)
   end as accuracy_pct,
-  min(a.page) as range_min,
-  max(a.page) as range_max,
+  min(a.page) as min_page,
+  max(a.page) as max_page,
   max(a.created_at) as last_active
 from public.sessions s
 join public.profiles p on p.id = s.user_id
 left join public.attempts a on a.session_id = s.id
 where s.is_public = true
-group by s.id, s.user_id, p.display_name, s.title, s.created_at;
+group by s.id, s.user_id, p.display_name, s.title, s.range_min, s.range_max, s.created_at;
+
+-- 11) Only one public (leaderboard) session per user. The app UI
+--     already enforces this (turning one session public quietly
+--     turns any other one off first), but this constraint is the
+--     real guarantee — it also protects against two browser
+--     tabs/devices racing each other.
+create unique index if not exists sessions_one_public_per_user
+  on public.sessions (user_id)
+  where is_public;
 
 -- ============================================================
 -- Done. Next steps:

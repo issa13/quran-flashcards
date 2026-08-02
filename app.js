@@ -57,6 +57,8 @@ let answeredThisCard = false;
 // Current question context (used for syncing attempts to Supabase)
 let currentQuestionType = null;
 let currentPage = null;
+let currentRangeMin = null;
+let currentRangeMax = null;
 
 // Active session (signed-in users only) — always the user's last
 // (most recently created) session, and the ONLY session new attempts
@@ -337,6 +339,8 @@ function markAnswer(isCorrect) {
       page: currentPage,
       isCorrect,
       sessionId: activeSessionId,
+      rangeMin: currentRangeMin,
+      rangeMax: currentRangeMax,
     }).catch(() => { /* non-fatal: keep app usable offline */ });
   }
 }
@@ -422,6 +426,8 @@ async function generateCard() {
 
     currentQuestionType = type;
     currentPage = page;
+    currentRangeMin = minP;
+    currentRangeMax = maxP;
 
     hasActiveCard = true;
     answeredThisCard = false;
