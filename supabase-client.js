@@ -116,9 +116,12 @@ async function createSession(title) {
   return data.id;
 }
 
-// Returns the id of the session that should receive new attempts.
-// Verifies the previously-active session still exists (it may have
-// been deleted); creates a fresh default one if needed.
+// Returns { id, rangeMin, rangeMax } for the session that should
+// receive new attempts (rangeMin/rangeMax are null for a session
+// that hasn't had its first attempt recorded yet — see app.js's
+// activeSessionHasRangeConflict()). Verifies the previously-active
+// session still exists (it may have been deleted); creates a fresh
+// default one if needed.
 async function ensureActiveSession() {
   if (!sb || !currentUser) return null;
 
@@ -126,13 +129,14 @@ async function ensureActiveSession() {
   if (settings?.active_session_id) {
     const { data } = await sb
       .from("sessions")
-      .select("id")
+      .select("id, range_min, range_max")
       .eq("id", settings.active_session_id)
       .maybeSingle();
-    if (data) return data.id;
+    if (data) return { id: data.id, rangeMin: data.range_min, rangeMax: data.range_max };
   }
 
-  return await createSession("الجلسة الأولى");
+  const newId = await createSession("الجلسة الأولى");
+  return { id: newId, rangeMin: null, rangeMax: null };
 }
 
 async function fetchMySessions() {
@@ -189,9 +193,11 @@ async function renameSession(sessionId, title) {
 // -------- attempts sync --------
 // Uses the record_attempt() RPC (see supabase-schema.sql) so the
 // attempt insert and widening the session's stored page range happen
-// in one atomic round trip.
+// in one atomic round trip. Returns true only on a confirmed success —
+// app.js uses this to know when it's safe to lock in the session's
+// page range (see activeSessionHasRangeConflict()).
 async function recordAttempt({ questionType, page, isCorrect, sessionId, rangeMin, rangeMax }) {
-  if (!sb || !currentUser) return;
+  if (!sb || !currentUser) return false;
   const { error } = await sb.rpc("record_attempt", {
     p_session_id: sessionId || null,
     p_question_type: questionType,
@@ -200,7 +206,11 @@ async function recordAttempt({ questionType, page, isCorrect, sessionId, rangeMi
     p_range_min: rangeMin ?? null,
     p_range_max: rangeMax ?? null,
   });
-  if (error) console.error("recordAttempt error", error);
+  if (error) {
+    console.error("recordAttempt error", error);
+    return false;
+  }
+  return true;
 }
 
 // Per-type breakdown for a single session (used in the stats modal)

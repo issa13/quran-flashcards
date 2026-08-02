@@ -64,9 +64,30 @@ let currentRangeMax = null;
 // (most recently created) session, and the ONLY session new attempts
 // get attached to. Browsing other sessions in the stats modal never
 // changes this. Exposed to auth-ui.js via the getter/setter below.
+//
+// activeSessionRangeMin/Max is the page range this session is LOCKED
+// to (null until its first answered question). A session may only
+// ever be quizzed on one range — see activeSessionHasRangeConflict()
+// below — so changing the range mid-session requires a new session
+// rather than silently widening this one's stored range.
 let activeSessionId = null;
+let activeSessionRangeMin = null;
+let activeSessionRangeMax = null;
 function getActiveSessionId() { return activeSessionId; }
-function syncActiveSessionId(id) { activeSessionId = id; }
+function syncActiveSessionId(id) {
+  activeSessionId = id;
+  activeSessionRangeMin = null;
+  activeSessionRangeMax = null;
+}
+
+// True when the given range differs from the range this session is
+// already locked to. Guests and brand-new sessions (no locked range
+// yet) never conflict.
+function activeSessionHasRangeConflict(minP, maxP) {
+  if (!currentUser || !activeSessionId) return false;
+  if (activeSessionRangeMin == null || activeSessionRangeMax == null) return false;
+  return minP !== activeSessionRangeMin || maxP !== activeSessionRangeMax;
+}
 
 // Timer state
 let timerInterval = null;
@@ -341,6 +362,13 @@ function markAnswer(isCorrect) {
       sessionId: activeSessionId,
       rangeMin: currentRangeMin,
       rangeMax: currentRangeMax,
+    }).then((ok) => {
+      // First successfully-recorded attempt in a fresh session locks
+      // its range going forward (see activeSessionHasRangeConflict()).
+      if (ok && activeSessionId && activeSessionRangeMin == null && activeSessionRangeMax == null) {
+        activeSessionRangeMin = currentRangeMin;
+        activeSessionRangeMax = currentRangeMax;
+      }
     }).catch(() => { /* non-fatal: keep app usable offline */ });
   }
 }
@@ -383,10 +411,17 @@ async function generateCard() {
     const type = qTypeSelect.value;
     const label = getTypeLabel(type);
 
+    const { minP, maxP } = getRangeFromSelect();
+
+    if (activeSessionHasRangeConflict(minP, maxP)) {
+      const rangeText = `${activeSessionRangeMin}–${activeSessionRangeMax}`;
+      setStatus(`لا يمكن الجمع بين نطاقين في نفس الجلسة (النطاق الحالي: ${rangeText}). أنشئ جلسة جديدة من «📊 إحصائياتي» لتستخدم النطاق الجديد.`);
+      alert(`هذه الجلسة بدأت بنطاق صفحات مختلف (${rangeText}). لتغيير النطاق يجب إنشاء جلسة جديدة أولاً من «📊 إحصائياتي».`);
+      return;
+    }
+
     // show description inside card (front)
     cardHelp.textContent = `النوع: ${label} — ${getTypeDescription(type)}`;
-
-    const { minP, maxP } = getRangeFromSelect();
 
     let page = randInt(minP, maxP);
 
@@ -515,9 +550,14 @@ if (typeof onAuthChange === "function") {
 
   onAuthChange(async (user) => {
     if (user && typeof ensureActiveSession === "function") {
-      activeSessionId = await ensureActiveSession();
+      const active = await ensureActiveSession();
+      activeSessionId = active?.id ?? null;
+      activeSessionRangeMin = active?.rangeMin ?? null;
+      activeSessionRangeMax = active?.rangeMax ?? null;
     } else {
       activeSessionId = null;
+      activeSessionRangeMin = null;
+      activeSessionRangeMax = null;
     }
   });
 } else {
