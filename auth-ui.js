@@ -193,7 +193,7 @@ async function submitNewSession() {
 
   if (newId) {
     newSessionNameInput.value = "";
-    newSessionBtn.style.display = "none";
+    newSessionBtn.disabled = true;
 
     // The new session becomes the one and only session new attempts
     // are recorded against, and the panel score starts fresh for it.
