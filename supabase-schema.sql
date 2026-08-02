@@ -186,9 +186,13 @@ order by s.created_at desc;
 --    per-session one below.
 drop view if exists public.leaderboard;
 
--- 9) Public leaderboard, per session. Ranking uses a Wilson score
---    lower bound computed client-side (auth-ui.js) so a small sample
---    like 3/3 (100%) can't outrank a large one like 74/75 (98.7%).
+-- 9) Public leaderboard, per session. Ranking is computed client-side
+--    (auth-ui.js) from accuracy (Wilson score lower bound, so a small
+--    sample like 3/3 (100%) can't outrank a large one like 74/75
+--    (98.7%)), question count (baked into that same bound), and page
+--    range breadth (min/max page below) — a session quizzed across a
+--    wide span of the Mushaf ranks above an equally-accurate one that
+--    stuck to a handful of pages.
 create or replace view public.session_leaderboard as
 select
   s.id as session_id,
@@ -201,6 +205,8 @@ select
   case when count(a.id) = 0 then 0
        else round(100.0 * count(a.id) filter (where a.is_correct) / count(a.id), 1)
   end as accuracy_pct,
+  min(a.page) as min_page,
+  max(a.page) as max_page,
   max(a.created_at) as last_active
 from public.sessions s
 join public.profiles p on p.id = s.user_id

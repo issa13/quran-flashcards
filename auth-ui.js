@@ -402,8 +402,18 @@ function renderStatsHtml(attempts, session) {
 }
 
 // -------- leaderboard modal (fair, per-session ranking) --------
-// Wilson score lower bound: balances accuracy against sample size so
-// a tiny 100% session can't outrank a large, reliably-accurate one.
+// Ranking blends three things:
+//  1. Accuracy — via a Wilson score lower bound, so a tiny sample
+//     like 3/3 (100%) can't outrank a large, reliable one like
+//     74/75 (98.7%).
+//  2. Number of questions answered — baked into that same bound
+//     (more attempts narrow the confidence interval).
+//  3. Page range breadth — a session quizzed across a wide span of
+//     the Mushaf is more impressive than one that stuck to a
+//     handful of pages, so it earns up to a 35% boost on top of
+//     its accuracy score.
+const QURAN_TOTAL_PAGES = 604;
+
 function wilsonLowerBound(correct, total, z = 1.96) {
   if (!total) return 0;
   const phat = correct / total;
@@ -411,6 +421,17 @@ function wilsonLowerBound(correct, total, z = 1.96) {
   const centre = phat + (z * z) / (2 * total);
   const margin = z * Math.sqrt((phat * (1 - phat) + (z * z) / (4 * total)) / total);
   return (centre - margin) / denom;
+}
+
+function pageRangeSpan(row) {
+  if (row.min_page == null || row.max_page == null) return 0;
+  return row.max_page - row.min_page + 1;
+}
+
+function fairScore(row) {
+  const accuracyScore = wilsonLowerBound(row.total_correct, row.total_answers);
+  const rangeFactor = Math.min(1, pageRangeSpan(row) / QURAN_TOTAL_PAGES);
+  return accuracyScore * (0.65 + 0.35 * rangeFactor);
 }
 
 leaderboardOpenBtn.addEventListener("click", async () => {
@@ -429,18 +450,20 @@ function renderLeaderboardHtml(rows) {
   }
 
   const ranked = rows
-    .map((r) => ({ ...r, fairScore: wilsonLowerBound(r.total_correct, r.total_answers) }))
+    .map((r) => ({ ...r, fairScore: fairScore(r) }))
     .sort((a, b) => b.fairScore - a.fairScore)
     .slice(0, 15);
 
   return ranked
-    .map(
-      (r, i) => `
+    .map((r, i) => {
+      const span = pageRangeSpan(r);
+      const rangeLabel = span > 0 ? ` — ${span} صفحة` : "";
+      return `
       <div class="stat-row leaderboard-row">
         <div class="stat-row-label">${i + 1}. ${escapeHtml(r.display_name)} — ${escapeHtml(r.title)}</div>
-        <div class="stat-row-value">${r.total_correct}/${r.total_answers} (${r.accuracy_pct}%)</div>
-      </div>`
-    )
+        <div class="stat-row-value">${r.total_correct}/${r.total_answers} (${r.accuracy_pct}%)${rangeLabel}</div>
+      </div>`;
+    })
     .join("");
 }
 
