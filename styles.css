@@ -83,6 +83,7 @@ body::before {
 }
 
 .authbar-side {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -93,7 +94,7 @@ body::before {
   font-size: 13px;
   font-weight: 700;
   color: var(--emerald-dark);
-  margin-inline-end: 4px;
+  margin-inline-end: auto;
 }
 
 /* -------- Buttons -------- */
