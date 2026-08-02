@@ -58,6 +58,12 @@ let answeredThisCard = false;
 let currentQuestionType = null;
 let currentPage = null;
 
+// Active session (signed-in users only) — which session new attempts
+// get attached to. Exposed to auth-ui.js via the getter/setter below.
+let activeSessionId = null;
+function getActiveSessionId() { return activeSessionId; }
+function syncActiveSessionId(id) { activeSessionId = id; }
+
 // Timer state
 let timerInterval = null;
 let timerStart = 0;
@@ -191,6 +197,19 @@ function getSurahName(ayah) {
   return clean(s.name) || "غير معروف";
 }
 
+// Shrink text for long ayahs so they fit the card without needing to scroll
+function setCardText(el, text) {
+  el.textContent = text;
+  const len = (text || "").length;
+  let size = 19;
+  if (len > 260) size = 13;
+  else if (len > 200) size = 14;
+  else if (len > 150) size = 15;
+  else if (len > 100) size = 16;
+  else if (len > 60) size = 17;
+  el.style.fontSize = size + "px";
+}
+
 // -------- descriptions inside card --------
 function getTypeDescription(type) {
   switch (type) {
@@ -305,6 +324,7 @@ function markAnswer(isCorrect) {
       questionType: currentQuestionType,
       page: currentPage,
       isCorrect,
+      sessionId: activeSessionId,
     }).catch(() => { /* non-fatal: keep app usable offline */ });
   }
 }
@@ -378,15 +398,15 @@ async function generateCard() {
     }
 
     if (!qa || !qa.q || !qa.a) {
-      qText.textContent = "تعذر إنشاء سؤال. حاول مرة أخرى.";
-      aText.textContent = "—";
+      setCardText(qText, "تعذر إنشاء سؤال. حاول مرة أخرى.");
+      setCardText(aText, "—");
       setStatus("حصلت مشكلة. جرّب مرة ثانية.");
       unlockGenerate();
       return;
     }
 
-    qText.textContent = qa.q;
-    aText.textContent = qa.a;
+    setCardText(qText, qa.q);
+    setCardText(aText, qa.a);
 
     currentQuestionType = type;
     currentPage = page;
@@ -402,8 +422,8 @@ async function generateCard() {
 
     startTimer();
   } catch (err) {
-    qText.textContent = "خطأ في الشبكة أو في الـ API.";
-    aText.textContent = "—";
+    setCardText(qText, "خطأ في الشبكة أو في الـ API.");
+    setCardText(aText, "—");
     setStatus("فشل التحميل. تأكد من الإنترنت وحاول مجددًا.");
     unlockGenerate();
   }
@@ -472,6 +492,14 @@ if (typeof onAuthChange === "function") {
       }
     } else {
       settingsSyncReady = true;
+    }
+  });
+
+  onAuthChange(async (user) => {
+    if (user && typeof ensureActiveSession === "function") {
+      activeSessionId = await ensureActiveSession();
+    } else {
+      activeSessionId = null;
     }
   });
 } else {

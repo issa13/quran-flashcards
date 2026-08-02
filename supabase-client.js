@@ -37,6 +37,8 @@ async function initAuth() {
   });
 }
 
+// signUp returns the raw { user, session } so the caller can tell
+// whether email confirmation is required (session will be null).
 async function signUp(email, password, displayName) {
   const { data, error } = await sb.auth.signUp({
     email,
@@ -83,11 +85,99 @@ async function saveRemoteSettings(settings) {
   if (error) console.error("saveRemoteSettings error", error);
 }
 
+// Partial upsert: only touches active_session_id, leaves the rest of
+// the row (question type, timer, etc.) untouched.
+async function setActiveSessionId(sessionId) {
+  if (!sb || !currentUser) return;
+  const { error } = await sb.from("user_settings").upsert(
+    {
+      user_id: currentUser.id,
+      active_session_id: sessionId,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" }
+  );
+  if (error) console.error("setActiveSessionId error", error);
+}
+
+// -------- sessions --------
+async function createSession(title) {
+  if (!sb || !currentUser) return null;
+  const { data, error } = await sb
+    .from("sessions")
+    .insert({ user_id: currentUser.id, title: title || "جلسة جديدة" })
+    .select()
+    .single();
+  if (error) {
+    console.error("createSession error", error);
+    return null;
+  }
+  await setActiveSessionId(data.id);
+  return data.id;
+}
+
+// Returns the id of the session that should receive new attempts.
+// Verifies the previously-active session still exists (it may have
+// been deleted); creates a fresh default one if needed.
+async function ensureActiveSession() {
+  if (!sb || !currentUser) return null;
+
+  const settings = await loadRemoteSettings();
+  if (settings?.active_session_id) {
+    const { data } = await sb
+      .from("sessions")
+      .select("id")
+      .eq("id", settings.active_session_id)
+      .maybeSingle();
+    if (data) return data.id;
+  }
+
+  return await createSession("الجلسة الأولى");
+}
+
+async function fetchMySessions() {
+  if (!sb || !currentUser) return [];
+  const { data, error } = await sb
+    .from("session_summary")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.error("fetchMySessions error", error);
+    return [];
+  }
+  return data;
+}
+
+async function deleteSession(sessionId) {
+  if (!sb || !currentUser) return;
+  const { error } = await sb.from("sessions").delete().eq("id", sessionId);
+  if (error) console.error("deleteSession error", error);
+}
+
+async function setSessionPublic(sessionId, isPublic) {
+  if (!sb || !currentUser) return;
+  const { error } = await sb
+    .from("sessions")
+    .update({ is_public: isPublic })
+    .eq("id", sessionId);
+  if (error) console.error("setSessionPublic error", error);
+}
+
+async function renameSession(sessionId, title) {
+  if (!sb || !currentUser) return;
+  const { error } = await sb
+    .from("sessions")
+    .update({ title })
+    .eq("id", sessionId);
+  if (error) console.error("renameSession error", error);
+}
+
 // -------- attempts sync --------
-async function recordAttempt({ questionType, page, isCorrect }) {
+async function recordAttempt({ questionType, page, isCorrect, sessionId }) {
   if (!sb || !currentUser) return;
   const { error } = await sb.from("attempts").insert({
     user_id: currentUser.id,
+    session_id: sessionId || null,
     question_type: questionType,
     page,
     is_correct: isCorrect,
@@ -95,22 +185,23 @@ async function recordAttempt({ questionType, page, isCorrect }) {
   if (error) console.error("recordAttempt error", error);
 }
 
-async function fetchStats() {
-  if (!sb || !currentUser) return null;
+// Per-type breakdown for a single session (used in the stats modal)
+async function fetchSessionAttempts(sessionId) {
+  if (!sb || !currentUser || !sessionId) return null;
   const { data, error } = await sb
     .from("attempts")
     .select("question_type, is_correct, created_at")
-    .eq("user_id", currentUser.id)
+    .eq("session_id", sessionId)
     .order("created_at", { ascending: false })
     .limit(2000);
   if (error) {
-    console.error("fetchStats error", error);
+    console.error("fetchSessionAttempts error", error);
     return null;
   }
   return data;
 }
 
-// -------- profile / leaderboard --------
+// -------- profile --------
 async function fetchProfile() {
   if (!sb || !currentUser) return null;
   const { data, error } = await sb
@@ -125,24 +216,15 @@ async function fetchProfile() {
   return data;
 }
 
-async function updateProfile(fields) {
-  if (!sb || !currentUser) return;
-  const { error } = await sb
-    .from("profiles")
-    .update(fields)
-    .eq("id", currentUser.id);
-  if (error) console.error("updateProfile error", error);
-}
-
-async function fetchLeaderboard() {
+// -------- leaderboard (raw rows; caller ranks with Wilson score) --------
+async function fetchSessionLeaderboard() {
   if (!sb) return [];
   const { data, error } = await sb
-    .from("leaderboard")
+    .from("session_leaderboard")
     .select("*")
-    .order("total_correct", { ascending: false })
-    .limit(20);
+    .limit(200);
   if (error) {
-    console.error("fetchLeaderboard error", error);
+    console.error("fetchSessionLeaderboard error", error);
     return [];
   }
   return data;
