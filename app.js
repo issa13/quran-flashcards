@@ -11,6 +11,7 @@ const qText = document.getElementById("qText");
 const aText = document.getElementById("aText");
 const statusEl = document.getElementById("status");
 const progressBar = document.getElementById("progressBar");
+const progressWrap = document.querySelector(".progress-wrap");
 
 const qTypeSelect = document.getElementById("qTypeSelect");
 const timerSelect = document.getElementById("timerSelect");
@@ -69,6 +70,10 @@ function setStatus(msg) { statusEl.textContent = msg || ""; }
 
 function updateScore() {
   scoreBox.textContent = `النتيجة: ${correct} / ${total}`;
+  scoreBox.classList.remove("pulse");
+  // restart animation
+  void scoreBox.offsetWidth;
+  scoreBox.classList.add("pulse");
 }
 
 function setFlipped(flipped) { flashcard.classList.toggle("is-flipped", flipped); }
@@ -129,6 +134,7 @@ function stopTimer() {
     timerInterval = null;
   }
   progressBar.style.width = "0%";
+  progressWrap.classList.remove("low-time");
 }
 
 function getTimerSeconds() {
@@ -152,6 +158,7 @@ function startTimer() {
     const elapsed = Date.now() - timerStart;
     const pct = clamp((elapsed / timerDurationMs) * 100, 0, 100);
     progressBar.style.width = pct + "%";
+    progressWrap.classList.toggle("low-time", pct >= 70);
 
     if (elapsed >= timerDurationMs) {
       stopTimer();
@@ -286,6 +293,10 @@ function markAnswer(isCorrect) {
   unlockGenerate();
 
   setStatus(isCorrect ? "تم التسجيل: ✅ صحيح" : "تم التسجيل: ❌ خطأ");
+
+  const flashClass = isCorrect ? "flash-correct" : "flash-wrong";
+  flashcard.classList.add(flashClass);
+  setTimeout(() => flashcard.classList.remove(flashClass), 700);
 
   saveGuestScore();
 
