@@ -27,12 +27,35 @@ const scoreBox = document.getElementById("scoreBox");
 const cardHelp = document.getElementById("cardHelp");
 
 // Score
+const GUEST_SCORE_KEY = "qf_guest_score";
 let total = 0;
 let correct = 0;
+
+function loadGuestScore() {
+  try {
+    const raw = localStorage.getItem(GUEST_SCORE_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    if (Number.isFinite(saved.total) && Number.isFinite(saved.correct)) {
+      total = saved.total;
+      correct = saved.correct;
+    }
+  } catch (e) { /* ignore corrupt storage */ }
+}
+
+function saveGuestScore() {
+  try {
+    localStorage.setItem(GUEST_SCORE_KEY, JSON.stringify({ total, correct }));
+  } catch (e) { /* storage unavailable, ignore */ }
+}
 
 // Card state
 let hasActiveCard = false;
 let answeredThisCard = false;
+
+// Current question context (used for syncing attempts to Supabase)
+let currentQuestionType = null;
+let currentPage = null;
 
 // Timer state
 let timerInterval = null;
@@ -263,6 +286,16 @@ function markAnswer(isCorrect) {
   unlockGenerate();
 
   setStatus(isCorrect ? "تم التسجيل: ✅ صحيح" : "تم التسجيل: ❌ خطأ");
+
+  saveGuestScore();
+
+  if (typeof recordAttempt === "function" && currentQuestionType) {
+    recordAttempt({
+      questionType: currentQuestionType,
+      page: currentPage,
+      isCorrect,
+    }).catch(() => { /* non-fatal: keep app usable offline */ });
+  }
 }
 
 btnRight.addEventListener("click", (e) => {
@@ -344,6 +377,9 @@ async function generateCard() {
     qText.textContent = qa.q;
     aText.textContent = qa.a;
 
+    currentQuestionType = type;
+    currentPage = page;
+
     hasActiveCard = true;
     answeredThisCard = false;
 
@@ -365,6 +401,7 @@ async function generateCard() {
 generateBtn.addEventListener("click", generateCard);
 
 // Init
+loadGuestScore();
 updateScore();
 lockMarkButtons();
 setStatus("");
@@ -377,3 +414,55 @@ qTypeSelect.addEventListener("change", () => {
   const label = getTypeLabel(type);
   cardHelp.textContent = `النوع: ${label} — ${getTypeDescription(type)}`;
 });
+
+// -------- settings sync (signed-in users only) --------
+let settingsSyncReady = false; // avoid feedback loop while applying remote settings
+
+function currentSettingsPayload() {
+  return {
+    question_type: qTypeSelect.value,
+    timer_seconds: getTimerSeconds(),
+    range_key: rangeSelect.value,
+    custom_min: parseInt(customMinEl.value, 10) || 1,
+    custom_max: parseInt(customMaxEl.value, 10) || 604,
+  };
+}
+
+function applyRemoteSettings(settings) {
+  if (!settings) return;
+  settingsSyncReady = false;
+  if (settings.question_type) qTypeSelect.value = settings.question_type;
+  if (settings.timer_seconds != null) timerSelect.value = String(settings.timer_seconds);
+  if (settings.range_key) rangeSelect.value = settings.range_key;
+  if (settings.custom_min != null) customMinEl.value = settings.custom_min;
+  if (settings.custom_max != null) customMaxEl.value = settings.custom_max;
+  showHideCustomRange();
+  settingsSyncReady = true;
+}
+
+[qTypeSelect, timerSelect, rangeSelect, customMinEl, customMaxEl].forEach((el) => {
+  el.addEventListener("change", () => {
+    if (!settingsSyncReady) return;
+    if (typeof saveRemoteSettings === "function") {
+      saveRemoteSettings(currentSettingsPayload()).catch(() => {});
+    }
+  });
+});
+
+if (typeof onAuthChange === "function") {
+  onAuthChange(async (user) => {
+    if (user && typeof loadRemoteSettings === "function") {
+      const remote = await loadRemoteSettings();
+      if (remote) {
+        applyRemoteSettings(remote);
+      } else {
+        settingsSyncReady = true;
+        saveRemoteSettings(currentSettingsPayload()).catch(() => {});
+      }
+    } else {
+      settingsSyncReady = true;
+    }
+  });
+} else {
+  settingsSyncReady = true;
+}

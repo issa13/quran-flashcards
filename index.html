@@ -10,6 +10,19 @@
 <body>
   <div class="wrap">
 
+    <!-- Auth bar -->
+    <div class="authbar">
+      <div id="guestActions" class="authbar-side">
+        <button id="loginOpenBtn" class="btn small">تسجيل الدخول</button>
+      </div>
+      <div id="userActions" class="authbar-side" style="display:none;">
+        <span id="userNameLabel" class="user-name"></span>
+        <button id="statsOpenBtn" class="btn small ghost">📊 إحصائياتي</button>
+        <button id="leaderboardOpenBtn" class="btn small ghost">🏆 الصدارة</button>
+        <button id="logoutBtn" class="btn small ghost">خروج</button>
+      </div>
+    </div>
+
     <div class="panel">
       <div class="topline">
         <div class="app-title">بطاقات مراجعة القرآن</div>
@@ -130,6 +143,82 @@
 
   </div>
 
+  <!-- Auth modal -->
+  <div id="authModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title" id="authModalTitle">تسجيل الدخول</div>
+        <button class="modal-close" id="authCloseBtn">✕</button>
+      </div>
+
+      <div class="tabs">
+        <button id="tabLogin" class="tab active">تسجيل الدخول</button>
+        <button id="tabSignup" class="tab">حساب جديد</button>
+      </div>
+
+      <div class="field" id="signupNameField" style="display:none; margin-top:10px;">
+        <label for="authName">الاسم المعروض</label>
+        <input id="authName" type="text" placeholder="مثال: أحمد">
+      </div>
+
+      <div class="field" style="margin-top:10px;">
+        <label for="authEmail">البريد الإلكتروني</label>
+        <input id="authEmail" type="email" placeholder="you@example.com">
+      </div>
+
+      <div class="field" style="margin-top:10px;">
+        <label for="authPassword">كلمة المرور</label>
+        <input id="authPassword" type="password" placeholder="••••••••">
+      </div>
+
+      <div id="authError" class="auth-error" style="display:none;"></div>
+
+      <button id="authSubmitBtn" class="btn primary full" style="margin-top:14px;">دخول</button>
+
+      <div class="modal-hint" id="authGuestHint">
+        بإمكانك الاستمرار كضيف — تقدّمك يُحفظ على هذا الجهاز فقط دون حساب.
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats modal -->
+  <div id="statsModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">📊 إحصائياتي</div>
+        <button class="modal-close" id="statsCloseBtn">✕</button>
+      </div>
+      <div id="statsBody" class="stats-body">
+        <div class="status">جاري التحميل...</div>
+      </div>
+
+      <div class="field" style="margin-top:14px;">
+        <label class="toggle-row">
+          <input type="checkbox" id="leaderboardOptIn">
+          إظهار اسمي في لوحة الصدارة العامة
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaderboard modal -->
+  <div id="leaderboardModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">🏆 لوحة الصدارة</div>
+        <button class="modal-close" id="leaderboardCloseBtn">✕</button>
+      </div>
+      <div id="leaderboardBody" class="stats-body">
+        <div class="status">جاري التحميل...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Supabase (only used once config.js is filled in) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script src="supabase-client.js"></script>
+  <script src="auth-ui.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
