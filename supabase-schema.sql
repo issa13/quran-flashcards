@@ -208,6 +208,15 @@ left join public.attempts a on a.session_id = s.id
 where s.is_public = true
 group by s.id, s.user_id, p.display_name, s.title, s.created_at;
 
+-- 10) Only one public (leaderboard) session per user. The app UI
+--     already enforces this (turning one session public quietly
+--     turns any other one off first), but this constraint is the
+--     real guarantee — it also protects against two browser
+--     tabs/devices racing each other.
+create unique index if not exists sessions_one_public_per_user
+  on public.sessions (user_id)
+  where is_public;
+
 -- ============================================================
 -- Done. Next steps:
 -- 1. Project Settings → API → copy "Project URL" and "anon public" key

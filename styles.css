@@ -271,6 +271,34 @@ select:focus, input:focus {
   color: var(--muted);
 }
 
+/* -------- Password visibility toggle -------- */
+.password-wrap {
+  position: relative;
+  display: flex;
+}
+
+.password-wrap input {
+  flex: 1;
+  padding-inline-end: 42px;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  inset-inline-end: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 6px 8px;
+  border-radius: 8px;
+  color: var(--muted);
+  transition: background 0.15s var(--ease);
+}
+.password-toggle-btn:hover { background: rgba(28, 35, 31, 0.06); }
+
 /* -------- Timer bar -------- */
 .progress-wrap {
   width: min(94vw, var(--maxw));

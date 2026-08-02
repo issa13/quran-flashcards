@@ -17,6 +17,7 @@ const authName = document.getElementById("authName");
 const authEmail = document.getElementById("authEmail");
 const authPassword = document.getElementById("authPassword");
 const authError = document.getElementById("authError");
+const authPasswordToggle = document.getElementById("authPasswordToggle");
 const authSubmitBtn = document.getElementById("authSubmitBtn");
 const authModalTitle = document.getElementById("authModalTitle");
 const authFormFields = document.getElementById("authFormFields");
@@ -54,7 +55,17 @@ function resetAuthModalView() {
   authFormFields.style.display = "block";
   authSuccessNotice.style.display = "none";
   authError.style.display = "none";
+  authPassword.type = "password";
+  authPasswordToggle.textContent = "👁️";
+  authPasswordToggle.setAttribute("aria-label", "إظهار كلمة المرور");
 }
+
+authPasswordToggle.addEventListener("click", () => {
+  const showing = authPassword.type === "text";
+  authPassword.type = showing ? "password" : "text";
+  authPasswordToggle.textContent = showing ? "👁️" : "🙈";
+  authPasswordToggle.setAttribute("aria-label", showing ? "إظهار كلمة المرور" : "إخفاء كلمة المرور");
+});
 
 function setAuthMode(mode) {
   authMode = mode;
@@ -204,16 +215,43 @@ async function submitNewSession() {
   }
 }
 
-// Toggling a session's leaderboard visibility. Supabase's row-level
-// security silently drops rows we're not allowed to touch instead of
-// raising an error, so a successful-looking update can still affect
-// zero rows — .select() after the update lets us tell the difference
-// and avoid quietly showing a "public" session that never actually
-// made it into the leaderboard.
+// Toggling a session's leaderboard visibility. Only one session per
+// user may be public at a time — turning this one on while another
+// is already public bumps the other one off (after confirmation).
+// Supabase's row-level security silently drops rows we're not
+// allowed to touch instead of raising an error, so a successful-
+// looking update can still affect zero rows — .select() after the
+// update lets us tell the difference and avoid quietly showing a
+// "public" session that never actually made it into the leaderboard.
 sessionPublicToggle.addEventListener("change", async () => {
   if (!selectedSessionId) return;
 
   const wanted = sessionPublicToggle.checked;
+
+  if (wanted) {
+    const other = mySessions.find((s) => s.session_id !== selectedSessionId && s.is_public);
+    if (other) {
+      const ok = confirm(
+        `يمكن إضافة جلسة واحدة فقط إلى لوحة الصدارة. بإضافة هذه الجلسة ستتم إزالة "${other.title}" من لوحة الصدارة. هل تريد المتابعة؟`
+      );
+      if (!ok) {
+        sessionPublicToggle.checked = false;
+        return;
+      }
+
+      sessionPublicToggle.disabled = true;
+      const removeResult = await setSessionPublic(other.session_id, false);
+      sessionPublicToggle.disabled = false;
+
+      if (!removeResult || !removeResult.ok) {
+        sessionPublicToggle.checked = false;
+        alert("تعذّر تحديث حالة الصدارة. حاول مرة أخرى.");
+        return;
+      }
+      other.is_public = false;
+    }
+  }
+
   sessionPublicToggle.disabled = true;
   const result = await setSessionPublic(selectedSessionId, wanted);
   sessionPublicToggle.disabled = false;
@@ -392,7 +430,8 @@ function renderLeaderboardHtml(rows) {
 
   const ranked = rows
     .map((r) => ({ ...r, fairScore: wilsonLowerBound(r.total_correct, r.total_answers) }))
-    .sort((a, b) => b.fairScore - a.fairScore);
+    .sort((a, b) => b.fairScore - a.fairScore)
+    .slice(0, 15);
 
   return ranked
     .map(

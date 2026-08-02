@@ -177,7 +177,10 @@
 
         <div class="field" style="margin-top:10px;">
           <label for="authPassword">كلمة المرور</label>
-          <input id="authPassword" type="password" placeholder="••••••••">
+          <div class="password-wrap">
+            <input id="authPassword" type="password" placeholder="••••••••">
+            <button type="button" id="authPasswordToggle" class="password-toggle-btn" aria-label="إظهار كلمة المرور">👁️</button>
+          </div>
         </div>
 
         <div id="authError" class="auth-error" style="display:none;"></div>
