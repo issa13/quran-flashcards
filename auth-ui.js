@@ -174,14 +174,16 @@ statsCloseBtn.addEventListener("click", () => hideModal(statsModal));
 statsModal.addEventListener("click", (e) => { if (e.target === statsModal) hideModal(statsModal); });
 
 newSessionNameInput.addEventListener("input", () => {
-  newSessionBtn.disabled = newSessionNameInput.value.trim().length === 0;
+  newSessionBtn.style.display = newSessionNameInput.value.trim() ? "" : "none";
 });
 
 newSessionNameInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !newSessionBtn.disabled) newSessionBtn.click();
+  if (e.key === "Enter" && newSessionNameInput.value.trim()) submitNewSession();
 });
 
-newSessionBtn.addEventListener("click", async () => {
+newSessionBtn.addEventListener("click", submitNewSession);
+
+async function submitNewSession() {
   const name = newSessionNameInput.value.trim();
   if (!name) return;
 
@@ -191,6 +193,7 @@ newSessionBtn.addEventListener("click", async () => {
 
   if (newId) {
     newSessionNameInput.value = "";
+    newSessionBtn.style.display = "none";
 
     // The new session becomes the one and only session new attempts
     // are recorded against, and the panel score starts fresh for it.
@@ -199,36 +202,49 @@ newSessionBtn.addEventListener("click", async () => {
 
     await refreshSessionsAndShow(newId);
   }
-});
+}
 
+// Toggling a session's leaderboard visibility. Supabase's row-level
+// security silently drops rows we're not allowed to touch instead of
+// raising an error, so a successful-looking update can still affect
+// zero rows — .select() after the update lets us tell the difference
+// and avoid quietly showing a "public" session that never actually
+// made it into the leaderboard.
 sessionPublicToggle.addEventListener("change", async () => {
   if (!selectedSessionId) return;
-  await setSessionPublic(selectedSessionId, sessionPublicToggle.checked);
+
+  const wanted = sessionPublicToggle.checked;
+  sessionPublicToggle.disabled = true;
+  const result = await setSessionPublic(selectedSessionId, wanted);
+  sessionPublicToggle.disabled = false;
+
+  if (!result || !result.ok) {
+    sessionPublicToggle.checked = !wanted; // revert — the update didn't actually take
+    alert("تعذّر تحديث حالة الصدارة لهذه الجلسة. حاول مرة أخرى.");
+    return;
+  }
+
   const s = mySessions.find((x) => x.session_id === selectedSessionId);
-  if (s) s.is_public = sessionPublicToggle.checked;
+  if (s) s.is_public = result.is_public;
+  renderSessionChips(); // show/hide the 🏆 badge in the table immediately
 });
 
 deleteSessionBtn.addEventListener("click", async () => {
   if (!selectedSessionId) return;
+
+  const activeId = (typeof getActiveSessionId === "function") ? getActiveSessionId() : null;
+  if (activeId != null && activeId === selectedSessionId) return; // the last/active session can't be deleted
+
   const ok = confirm("هل تريد حذف هذه الجلسة؟ سيتم حذف كل إحصائياتها ولا يمكن التراجع.");
   if (!ok) return;
-
-  const wasActive = (typeof getActiveSessionId === "function") && getActiveSessionId() === selectedSessionId;
 
   deleteSessionBtn.disabled = true;
   await deleteSession(selectedSessionId);
   deleteSessionBtn.disabled = false;
 
-  // The deleted session was the one recording new attempts — line up
-  // a fresh one so future answers have somewhere valid to go.
-  if (wasActive && typeof ensureActiveSession === "function" && typeof syncActiveSessionId === "function") {
-    const freshId = await ensureActiveSession();
-    syncActiveSessionId(freshId);
-    if (typeof resetScore === "function") resetScore();
-  }
-
   await refreshSessionsAndShow(null);
 });
+
 
 async function refreshSessionsAndShow(preferSessionId) {
   statsBody.innerHTML = '<div class="status">جاري التحميل...</div>';
@@ -296,6 +312,12 @@ async function renderSelectedSession() {
 
   sessionActions.style.display = "flex";
   sessionPublicToggle.checked = !!session.is_public;
+
+  // The last (currently recording) session can't be deleted — hide
+  // the button entirely rather than let the user hit an error.
+  const activeId = (typeof getActiveSessionId === "function") ? getActiveSessionId() : null;
+  const isActiveSession = activeId != null && activeId === selectedSessionId;
+  deleteSessionBtn.style.display = isActiveSession ? "none" : "";
 }
 
 function renderStatsHtml(attempts, session) {

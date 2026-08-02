@@ -154,13 +154,27 @@ async function deleteSession(sessionId) {
   if (error) console.error("deleteSession error", error);
 }
 
+// Returns { ok: true, is_public } on a confirmed update, or { ok: false }
+// if nothing was actually changed. Supabase's row-level security drops
+// rows the caller isn't allowed to touch instead of raising an error,
+// so a request with no `error` can still update zero rows — checking
+// the returned row is the only way to know it really happened.
 async function setSessionPublic(sessionId, isPublic) {
-  if (!sb || !currentUser) return;
-  const { error } = await sb
+  if (!sb || !currentUser) return { ok: false };
+  const { data, error } = await sb
     .from("sessions")
     .update({ is_public: isPublic })
-    .eq("id", sessionId);
-  if (error) console.error("setSessionPublic error", error);
+    .eq("id", sessionId)
+    .select("id, is_public");
+  if (error) {
+    console.error("setSessionPublic error", error);
+    return { ok: false };
+  }
+  if (!data || data.length === 0) {
+    console.error("setSessionPublic: update affected no rows (RLS blocked it?)");
+    return { ok: false };
+  }
+  return { ok: true, is_public: data[0].is_public };
 }
 
 async function renameSession(sessionId, title) {
