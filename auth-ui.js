@@ -17,7 +17,6 @@ const authName = document.getElementById("authName");
 const authEmail = document.getElementById("authEmail");
 const authPassword = document.getElementById("authPassword");
 const authError = document.getElementById("authError");
-const authPasswordToggle = document.getElementById("authPasswordToggle");
 const authSubmitBtn = document.getElementById("authSubmitBtn");
 const authModalTitle = document.getElementById("authModalTitle");
 const authFormFields = document.getElementById("authFormFields");
@@ -31,7 +30,6 @@ const statsCloseBtn = document.getElementById("statsCloseBtn");
 const statsBody = document.getElementById("statsBody");
 const sessionChips = document.getElementById("sessionChips");
 const newSessionBtn = document.getElementById("newSessionBtn");
-const newSessionNameInput = document.getElementById("newSessionName");
 const sessionActions = document.getElementById("sessionActions");
 const sessionPublicToggle = document.getElementById("sessionPublicToggle");
 const deleteSessionBtn = document.getElementById("deleteSessionBtn");
@@ -55,17 +53,7 @@ function resetAuthModalView() {
   authFormFields.style.display = "block";
   authSuccessNotice.style.display = "none";
   authError.style.display = "none";
-  authPassword.type = "password";
-  authPasswordToggle.textContent = "👁️";
-  authPasswordToggle.setAttribute("aria-label", "إظهار كلمة المرور");
 }
-
-authPasswordToggle.addEventListener("click", () => {
-  const showing = authPassword.type === "text";
-  authPassword.type = showing ? "password" : "text";
-  authPasswordToggle.textContent = showing ? "👁️" : "🙈";
-  authPasswordToggle.setAttribute("aria-label", showing ? "إظهار كلمة المرور" : "إخفاء كلمة المرور");
-});
 
 function setAuthMode(mode) {
   authMode = mode;
@@ -184,105 +172,30 @@ statsOpenBtn.addEventListener("click", async () => {
 statsCloseBtn.addEventListener("click", () => hideModal(statsModal));
 statsModal.addEventListener("click", (e) => { if (e.target === statsModal) hideModal(statsModal); });
 
-newSessionNameInput.addEventListener("input", () => {
-  newSessionBtn.disabled = !newSessionNameInput.value.trim();
-});
-
-newSessionNameInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && newSessionNameInput.value.trim()) submitNewSession();
-});
-
-newSessionBtn.addEventListener("click", submitNewSession);
-
-async function submitNewSession() {
-  const name = newSessionNameInput.value.trim();
-  if (!name) return;
-
+newSessionBtn.addEventListener("click", async () => {
   newSessionBtn.disabled = true;
-  const newId = await createSession(name);
+  const label = `جلسة ${mySessions.length + 1}`;
+  const newId = await createSession(label);
   newSessionBtn.disabled = false;
+  if (newId) await refreshSessionsAndShow(newId);
+});
 
-  if (newId) {
-    newSessionNameInput.value = "";
-    newSessionBtn.disabled = true;
-
-    // The new session becomes the one and only session new attempts
-    // are recorded against, and the panel score starts fresh for it.
-    if (typeof syncActiveSessionId === "function") syncActiveSessionId(newId);
-    if (typeof resetScore === "function") resetScore();
-
-    await refreshSessionsAndShow(newId);
-  }
-}
-
-// Toggling a session's leaderboard visibility. Only one session per
-// user may be public at a time — turning this one on while another
-// is already public bumps the other one off (after confirmation).
-// Supabase's row-level security silently drops rows we're not
-// allowed to touch instead of raising an error, so a successful-
-// looking update can still affect zero rows — .select() after the
-// update lets us tell the difference and avoid quietly showing a
-// "public" session that never actually made it into the leaderboard.
 sessionPublicToggle.addEventListener("change", async () => {
   if (!selectedSessionId) return;
-
-  const wanted = sessionPublicToggle.checked;
-
-  if (wanted) {
-    const other = mySessions.find((s) => s.session_id !== selectedSessionId && s.is_public);
-    if (other) {
-      const ok = confirm(
-        `يمكن إضافة جلسة واحدة فقط إلى لوحة الصدارة. بإضافة هذه الجلسة ستتم إزالة "${other.title}" من لوحة الصدارة. هل تريد المتابعة؟`
-      );
-      if (!ok) {
-        sessionPublicToggle.checked = false;
-        return;
-      }
-
-      sessionPublicToggle.disabled = true;
-      const removeResult = await setSessionPublic(other.session_id, false);
-      sessionPublicToggle.disabled = false;
-
-      if (!removeResult || !removeResult.ok) {
-        sessionPublicToggle.checked = false;
-        alert("تعذّر تحديث حالة الصدارة. حاول مرة أخرى.");
-        return;
-      }
-      other.is_public = false;
-    }
-  }
-
-  sessionPublicToggle.disabled = true;
-  const result = await setSessionPublic(selectedSessionId, wanted);
-  sessionPublicToggle.disabled = false;
-
-  if (!result || !result.ok) {
-    sessionPublicToggle.checked = !wanted; // revert — the update didn't actually take
-    alert("تعذّر تحديث حالة الصدارة لهذه الجلسة. حاول مرة أخرى.");
-    return;
-  }
-
+  await setSessionPublic(selectedSessionId, sessionPublicToggle.checked);
   const s = mySessions.find((x) => x.session_id === selectedSessionId);
-  if (s) s.is_public = result.is_public;
-  renderSessionChips(); // show/hide the 🏆 badge in the table immediately
+  if (s) s.is_public = sessionPublicToggle.checked;
 });
 
 deleteSessionBtn.addEventListener("click", async () => {
   if (!selectedSessionId) return;
-
-  const activeId = (typeof getActiveSessionId === "function") ? getActiveSessionId() : null;
-  if (activeId != null && activeId === selectedSessionId) return; // the last/active session can't be deleted
-
   const ok = confirm("هل تريد حذف هذه الجلسة؟ سيتم حذف كل إحصائياتها ولا يمكن التراجع.");
   if (!ok) return;
-
   deleteSessionBtn.disabled = true;
   await deleteSession(selectedSessionId);
   deleteSessionBtn.disabled = false;
-
   await refreshSessionsAndShow(null);
 });
-
 
 async function refreshSessionsAndShow(preferSessionId) {
   statsBody.innerHTML = '<div class="status">جاري التحميل...</div>';
@@ -313,27 +226,18 @@ function renderSessionChips() {
   sessionChips.innerHTML = mySessions
     .map((s) => {
       const active = s.session_id === selectedSessionId;
-      const pubBadge = s.is_public ? "🏆" : "";
-      const answers = s.total_answers || 0;
-      const acc = answers ? `${Math.round((100 * (s.total_correct || 0)) / answers)}%` : "—";
-      return `
-        <tr class="session-row${active ? " active" : ""}" data-id="${s.session_id}">
-          <td class="session-row-title">${escapeHtml(s.title)}</td>
-          <td>${answers}</td>
-          <td>${acc}</td>
-          <td class="session-row-badge">${pubBadge}</td>
-        </tr>`;
+      const pubBadge = s.is_public ? " 🏆" : "";
+      return `<button class="session-chip${active ? " active" : ""}" data-id="${s.session_id}">${escapeHtml(s.title)}${pubBadge}</button>`;
     })
     .join("");
 
-  // Selecting a row only changes which session's stats are shown
-  // below — it never changes which session new attempts are
-  // recorded against (that's always the last/most recent session).
-  sessionChips.querySelectorAll(".session-row").forEach((row) => {
-    row.addEventListener("click", async () => {
-      const id = Number(row.dataset.id);
+  sessionChips.querySelectorAll(".session-chip").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = Number(btn.dataset.id);
       if (id === selectedSessionId) return;
       selectedSessionId = id;
+      if (typeof setActiveSessionId === "function") await setActiveSessionId(id);
+      if (typeof syncActiveSessionId === "function") syncActiveSessionId(id);
       renderSessionChips();
       await renderSelectedSession();
     });
@@ -350,12 +254,6 @@ async function renderSelectedSession() {
 
   sessionActions.style.display = "flex";
   sessionPublicToggle.checked = !!session.is_public;
-
-  // The last (currently recording) session can't be deleted — hide
-  // the button entirely rather than let the user hit an error.
-  const activeId = (typeof getActiveSessionId === "function") ? getActiveSessionId() : null;
-  const isActiveSession = activeId != null && activeId === selectedSessionId;
-  deleteSessionBtn.style.display = isActiveSession ? "none" : "";
 }
 
 function renderStatsHtml(attempts, session) {
@@ -371,6 +269,7 @@ function renderStatsHtml(attempts, session) {
   }
 
   const pct = Math.round((correct / total) * 100);
+  const rangeText = formatPageRange(session?.range_min, session?.range_max);
 
   const byType = {};
   attempts.forEach((a) => {
@@ -396,24 +295,15 @@ function renderStatsHtml(attempts, session) {
     <div class="stat-summary">
       <div class="stat-big">${pct}%</div>
       <div class="stat-caption">${escapeHtml(session.title)} — ${correct} صحيحة من أصل ${total} محاولة</div>
+      <div class="stat-range-badge">📖 ${rangeText}</div>
     </div>
     <div class="stat-rows">${rows}</div>
   `;
 }
 
 // -------- leaderboard modal (fair, per-session ranking) --------
-// Ranking blends three things:
-//  1. Accuracy — via a Wilson score lower bound, so a tiny sample
-//     like 3/3 (100%) can't outrank a large, reliable one like
-//     74/75 (98.7%).
-//  2. Number of questions answered — baked into that same bound
-//     (more attempts narrow the confidence interval).
-//  3. Page range breadth — a session quizzed across a wide span of
-//     the Mushaf is more impressive than one that stuck to a
-//     handful of pages, so it earns up to a 35% boost on top of
-//     its accuracy score.
-const QURAN_TOTAL_PAGES = 604;
-
+// Wilson score lower bound: balances accuracy against sample size so
+// a tiny 100% session can't outrank a large, reliably-accurate one.
 function wilsonLowerBound(correct, total, z = 1.96) {
   if (!total) return 0;
   const phat = correct / total;
@@ -421,17 +311,6 @@ function wilsonLowerBound(correct, total, z = 1.96) {
   const centre = phat + (z * z) / (2 * total);
   const margin = z * Math.sqrt((phat * (1 - phat) + (z * z) / (4 * total)) / total);
   return (centre - margin) / denom;
-}
-
-function pageRangeSpan(row) {
-  if (row.min_page == null || row.max_page == null) return 0;
-  return row.max_page - row.min_page + 1;
-}
-
-function fairScore(row) {
-  const accuracyScore = wilsonLowerBound(row.total_correct, row.total_answers);
-  const rangeFactor = Math.min(1, pageRangeSpan(row) / QURAN_TOTAL_PAGES);
-  return accuracyScore * (0.65 + 0.35 * rangeFactor);
 }
 
 leaderboardOpenBtn.addEventListener("click", async () => {
@@ -450,20 +329,20 @@ function renderLeaderboardHtml(rows) {
   }
 
   const ranked = rows
-    .map((r) => ({ ...r, fairScore: fairScore(r) }))
-    .sort((a, b) => b.fairScore - a.fairScore)
-    .slice(0, 15);
+    .map((r) => ({ ...r, fairScore: wilsonLowerBound(r.total_correct, r.total_answers) }))
+    .sort((a, b) => b.fairScore - a.fairScore);
 
   return ranked
-    .map((r, i) => {
-      const span = pageRangeSpan(r);
-      const rangeLabel = span > 0 ? ` — ${span} صفحة` : "";
-      return `
+    .map(
+      (r, i) => `
       <div class="stat-row leaderboard-row">
-        <div class="stat-row-label">${i + 1}. ${escapeHtml(r.display_name)} — ${escapeHtml(r.title)}</div>
-        <div class="stat-row-value">${r.total_correct}/${r.total_answers} (${r.accuracy_pct}%)${rangeLabel}</div>
-      </div>`;
-    })
+        <div class="stat-row-label">
+          ${i + 1}. ${escapeHtml(r.display_name)} — ${escapeHtml(r.title)}
+          <div class="leaderboard-range">📖 ${formatPageRange(r.range_min, r.range_max)}</div>
+        </div>
+        <div class="stat-row-value">${r.total_correct}/${r.total_answers} (${r.accuracy_pct}%)</div>
+      </div>`
+    )
     .join("");
 }
 
@@ -471,6 +350,11 @@ function escapeHtml(str) {
   return (str || "").toString().replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
+}
+
+function formatPageRange(min, max) {
+  if (min == null || max == null) return "لا صفحات بعد";
+  return min === max ? `صفحة ${min}` : `من صفحة ${min} إلى ${max}`;
 }
 
 // Kick off auth

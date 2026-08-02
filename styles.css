@@ -83,7 +83,6 @@ body::before {
 }
 
 .authbar-side {
-  width: 100%;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -94,7 +93,7 @@ body::before {
   font-size: 13px;
   font-weight: 700;
   color: var(--emerald-dark);
-  margin-inline-end: auto;
+  margin-inline-end: 4px;
 }
 
 /* -------- Buttons -------- */
@@ -270,34 +269,6 @@ select:focus, input:focus {
   font-size: 12px;
   color: var(--muted);
 }
-
-/* -------- Password visibility toggle -------- */
-.password-wrap {
-  position: relative;
-  display: flex;
-}
-
-.password-wrap input {
-  flex: 1;
-  padding-inline-end: 42px;
-}
-
-.password-toggle-btn {
-  position: absolute;
-  inset-inline-end: 4px;
-  top: 50%;
-  transform: translateY(-50%);
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font-size: 15px;
-  line-height: 1;
-  padding: 6px 8px;
-  border-radius: 8px;
-  color: var(--muted);
-  transition: background 0.15s var(--ease);
-}
-.password-toggle-btn:hover { background: rgba(28, 35, 31, 0.06); }
 
 /* -------- Timer bar -------- */
 .progress-wrap {
@@ -612,65 +583,34 @@ select:focus, input:focus {
   margin-bottom: 12px;
 }
 
-.session-name-input {
+.session-chips {
   flex: 1;
-  min-width: 0;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
 }
+.session-chips::-webkit-scrollbar { height: 4px; }
+.session-chips::-webkit-scrollbar-thumb { background: rgba(184, 134, 46, 0.4); border-radius: 999px; }
 
-.sessions-table-wrap {
-  max-height: 240px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  border: 1px solid rgba(28, 35, 31, 0.1);
-  border-radius: var(--radius-sm);
-  margin-bottom: 4px;
-}
-.sessions-table-wrap::-webkit-scrollbar { width: 6px; }
-.sessions-table-wrap::-webkit-scrollbar-thumb { background: rgba(184, 134, 46, 0.4); border-radius: 999px; }
-
-.sessions-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-
-.sessions-table thead th {
-  position: sticky;
-  top: 0;
-  background: var(--card);
-  text-align: start;
+.session-chip {
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(28, 35, 31, 0.14);
+  background: #fff;
   color: var(--muted);
+  font-size: 12px;
   font-weight: 700;
-  padding: 8px 10px;
-  border-bottom: 1px solid rgba(28, 35, 31, 0.14);
-  white-space: nowrap;
-}
-
-.session-row {
+  font-family: inherit;
   cursor: pointer;
-  transition: background 0.15s var(--ease);
-}
-.session-row:hover { background: rgba(14, 107, 79, 0.06); }
-.session-row.active { background: var(--success-bg); }
-
-.session-row td {
-  padding: 8px 10px;
-  border-bottom: 1px solid rgba(28, 35, 31, 0.06);
-  color: var(--ink);
   white-space: nowrap;
+  transition: all 0.15s var(--ease);
 }
-
-.session-row-title {
-  font-weight: 700;
-  max-width: 150px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.session-row-badge {
-  text-align: center;
-  width: 26px;
+.session-chip.active {
+  background: var(--emerald);
+  border-color: var(--emerald-dark);
+  color: #fff;
 }
 
 .session-actions {
@@ -719,6 +659,25 @@ select:focus, input:focus {
 .stat-caption {
   margin-top: 4px;
   font-size: 12px;
+  color: var(--muted);
+}
+
+.stat-range-badge {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gold);
+  background: rgba(184, 134, 46, 0.1);
+  border: 1px solid rgba(184, 134, 46, 0.25);
+  border-radius: 999px;
+  padding: 4px 12px;
+}
+
+.leaderboard-range {
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 600;
   color: var(--muted);
 }
 
