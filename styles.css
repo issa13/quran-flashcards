@@ -450,6 +450,7 @@ select:focus, input:focus {
   width: min(94vw, 420px);
   max-height: 86vh;
   overflow-y: auto;
+  overflow-x: hidden;
   background: var(--card);
   border-radius: var(--radius-lg);
   border: 1px solid rgba(184, 134, 46, 0.25);
@@ -467,6 +468,7 @@ select:focus, input:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   margin-bottom: 12px;
 }
 
@@ -475,6 +477,12 @@ select:focus, input:focus {
   font-weight: 700;
   font-size: 18px;
   color: var(--emerald-dark);
+  overflow-wrap: break-word;
+}
+
+.stats-body, .modal-hint, .auth-error {
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .modal-close {
@@ -549,6 +557,11 @@ select:focus, input:focus {
 
 /* -------- Stats / leaderboard -------- */
 .stats-body { margin-top: 4px; }
+
+.stats-body .status {
+  width: 100%;
+  text-align: center;
+}
 
 .stat-summary {
   text-align: center;
