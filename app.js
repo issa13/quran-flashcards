@@ -136,6 +136,14 @@ function clean(s) { return (s || "").toString().trim(); }
 
 // -------- range select + custom --------
 function showHideCustomRange() {
+  const { minP, maxP } = getRangeFromSelect();
+
+  if (activeSessionHasRangeConflict(minP, maxP)) {
+    const rangeText = `${activeSessionRangeMin}–${activeSessionRangeMax}`;
+    setStatus(`لا يمكن الجمع بين نطاقين في نفس الجلسة (النطاق الحالي: ${rangeText}). أنشئ جلسة جديدة من «📊 إحصائياتي» لتستخدم النطاق الجديد.`);
+    alert(`هذه الجلسة بدأت بنطاق صفحات مختلف (${rangeText}). لتغيير النطاق يجب إنشاء جلسة جديدة أولاً من «📊 إحصائياتي».`);
+    return;
+  }
   customRangeRow.style.display = (rangeSelect.value === "custom") ? "flex" : "none";
 }
 rangeSelect.addEventListener("change", showHideCustomRange);
@@ -412,13 +420,6 @@ async function generateCard() {
     const label = getTypeLabel(type);
 
     const { minP, maxP } = getRangeFromSelect();
-
-    if (activeSessionHasRangeConflict(minP, maxP)) {
-      const rangeText = `${activeSessionRangeMin}–${activeSessionRangeMax}`;
-      setStatus(`لا يمكن الجمع بين نطاقين في نفس الجلسة (النطاق الحالي: ${rangeText}). أنشئ جلسة جديدة من «📊 إحصائياتي» لتستخدم النطاق الجديد.`);
-      alert(`هذه الجلسة بدأت بنطاق صفحات مختلف (${rangeText}). لتغيير النطاق يجب إنشاء جلسة جديدة أولاً من «📊 إحصائياتي».`);
-      return;
-    }
 
     // show description inside card (front)
     cardHelp.textContent = `النوع: ${label} — ${getTypeDescription(type)}`;
