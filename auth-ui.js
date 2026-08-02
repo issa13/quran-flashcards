@@ -30,6 +30,7 @@ const statsCloseBtn = document.getElementById("statsCloseBtn");
 const statsBody = document.getElementById("statsBody");
 const sessionChips = document.getElementById("sessionChips");
 const newSessionBtn = document.getElementById("newSessionBtn");
+const newSessionNameInput = document.getElementById("newSessionName");
 const sessionActions = document.getElementById("sessionActions");
 const sessionPublicToggle = document.getElementById("sessionPublicToggle");
 const deleteSessionBtn = document.getElementById("deleteSessionBtn");
@@ -172,12 +173,32 @@ statsOpenBtn.addEventListener("click", async () => {
 statsCloseBtn.addEventListener("click", () => hideModal(statsModal));
 statsModal.addEventListener("click", (e) => { if (e.target === statsModal) hideModal(statsModal); });
 
+newSessionNameInput.addEventListener("input", () => {
+  newSessionBtn.disabled = newSessionNameInput.value.trim().length === 0;
+});
+
+newSessionNameInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !newSessionBtn.disabled) newSessionBtn.click();
+});
+
 newSessionBtn.addEventListener("click", async () => {
+  const name = newSessionNameInput.value.trim();
+  if (!name) return;
+
   newSessionBtn.disabled = true;
-  const label = `جلسة ${mySessions.length + 1}`;
-  const newId = await createSession(label);
+  const newId = await createSession(name);
   newSessionBtn.disabled = false;
-  if (newId) await refreshSessionsAndShow(newId);
+
+  if (newId) {
+    newSessionNameInput.value = "";
+
+    // The new session becomes the one and only session new attempts
+    // are recorded against, and the panel score starts fresh for it.
+    if (typeof syncActiveSessionId === "function") syncActiveSessionId(newId);
+    if (typeof resetScore === "function") resetScore();
+
+    await refreshSessionsAndShow(newId);
+  }
 });
 
 sessionPublicToggle.addEventListener("change", async () => {
@@ -191,9 +212,21 @@ deleteSessionBtn.addEventListener("click", async () => {
   if (!selectedSessionId) return;
   const ok = confirm("هل تريد حذف هذه الجلسة؟ سيتم حذف كل إحصائياتها ولا يمكن التراجع.");
   if (!ok) return;
+
+  const wasActive = (typeof getActiveSessionId === "function") && getActiveSessionId() === selectedSessionId;
+
   deleteSessionBtn.disabled = true;
   await deleteSession(selectedSessionId);
   deleteSessionBtn.disabled = false;
+
+  // The deleted session was the one recording new attempts — line up
+  // a fresh one so future answers have somewhere valid to go.
+  if (wasActive && typeof ensureActiveSession === "function" && typeof syncActiveSessionId === "function") {
+    const freshId = await ensureActiveSession();
+    syncActiveSessionId(freshId);
+    if (typeof resetScore === "function") resetScore();
+  }
+
   await refreshSessionsAndShow(null);
 });
 
@@ -226,18 +259,27 @@ function renderSessionChips() {
   sessionChips.innerHTML = mySessions
     .map((s) => {
       const active = s.session_id === selectedSessionId;
-      const pubBadge = s.is_public ? " 🏆" : "";
-      return `<button class="session-chip${active ? " active" : ""}" data-id="${s.session_id}">${escapeHtml(s.title)}${pubBadge}</button>`;
+      const pubBadge = s.is_public ? "🏆" : "";
+      const answers = s.total_answers || 0;
+      const acc = answers ? `${Math.round((100 * (s.total_correct || 0)) / answers)}%` : "—";
+      return `
+        <tr class="session-row${active ? " active" : ""}" data-id="${s.session_id}">
+          <td class="session-row-title">${escapeHtml(s.title)}</td>
+          <td>${answers}</td>
+          <td>${acc}</td>
+          <td class="session-row-badge">${pubBadge}</td>
+        </tr>`;
     })
     .join("");
 
-  sessionChips.querySelectorAll(".session-chip").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const id = Number(btn.dataset.id);
+  // Selecting a row only changes which session's stats are shown
+  // below — it never changes which session new attempts are
+  // recorded against (that's always the last/most recent session).
+  sessionChips.querySelectorAll(".session-row").forEach((row) => {
+    row.addEventListener("click", async () => {
+      const id = Number(row.dataset.id);
       if (id === selectedSessionId) return;
       selectedSessionId = id;
-      if (typeof setActiveSessionId === "function") await setActiveSessionId(id);
-      if (typeof syncActiveSessionId === "function") syncActiveSessionId(id);
       renderSessionChips();
       await renderSelectedSession();
     });

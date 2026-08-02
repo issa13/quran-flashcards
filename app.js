@@ -58,8 +58,10 @@ let answeredThisCard = false;
 let currentQuestionType = null;
 let currentPage = null;
 
-// Active session (signed-in users only) — which session new attempts
-// get attached to. Exposed to auth-ui.js via the getter/setter below.
+// Active session (signed-in users only) — always the user's last
+// (most recently created) session, and the ONLY session new attempts
+// get attached to. Browsing other sessions in the stats modal never
+// changes this. Exposed to auth-ui.js via the getter/setter below.
 let activeSessionId = null;
 function getActiveSessionId() { return activeSessionId; }
 function syncActiveSessionId(id) { activeSessionId = id; }
@@ -80,6 +82,16 @@ function updateScore() {
   // restart animation
   void scoreBox.offsetWidth;
   scoreBox.classList.add("pulse");
+}
+
+// Called whenever a new session is created (see auth-ui.js) so the
+// score shown on the panel reflects the fresh session, not carried
+// over totals from whatever was played before it.
+function resetScore() {
+  total = 0;
+  correct = 0;
+  updateScore();
+  saveGuestScore();
 }
 
 function setFlipped(flipped) { flashcard.classList.toggle("is-flipped", flipped); }

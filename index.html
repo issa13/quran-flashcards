@@ -208,8 +208,22 @@
       </div>
 
       <div class="sessions-toolbar">
-        <div id="sessionChips" class="session-chips"></div>
-        <button id="newSessionBtn" class="btn small">+ جلسة جديدة</button>
+        <input id="newSessionName" type="text" class="session-name-input" placeholder="اسم الجلسة الجديدة" maxlength="60">
+        <button id="newSessionBtn" class="btn small" disabled>+ إضافة جلسة</button>
+      </div>
+
+      <div class="sessions-table-wrap">
+        <table class="sessions-table">
+          <thead>
+            <tr>
+              <th>الجلسة</th>
+              <th>الأسئلة</th>
+              <th>الدقة</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="sessionChips"></tbody>
+        </table>
       </div>
 
       <div id="statsBody" class="stats-body">

@@ -583,34 +583,65 @@ select:focus, input:focus {
   margin-bottom: 12px;
 }
 
-.session-chips {
+.session-name-input {
   flex: 1;
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 2px;
+  min-width: 0;
 }
-.session-chips::-webkit-scrollbar { height: 4px; }
-.session-chips::-webkit-scrollbar-thumb { background: rgba(184, 134, 46, 0.4); border-radius: 999px; }
 
-.session-chip {
-  flex: 0 0 auto;
-  padding: 7px 12px;
-  border-radius: 999px;
-  border: 1.5px solid rgba(28, 35, 31, 0.14);
-  background: #fff;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-  font-family: inherit;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s var(--ease);
+.sessions-table-wrap {
+  max-height: 240px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 1px solid rgba(28, 35, 31, 0.1);
+  border-radius: var(--radius-sm);
+  margin-bottom: 4px;
 }
-.session-chip.active {
-  background: var(--emerald);
-  border-color: var(--emerald-dark);
-  color: #fff;
+.sessions-table-wrap::-webkit-scrollbar { width: 6px; }
+.sessions-table-wrap::-webkit-scrollbar-thumb { background: rgba(184, 134, 46, 0.4); border-radius: 999px; }
+
+.sessions-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.sessions-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--card);
+  text-align: start;
+  color: var(--muted);
+  font-weight: 700;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(28, 35, 31, 0.14);
+  white-space: nowrap;
+}
+
+.session-row {
+  cursor: pointer;
+  transition: background 0.15s var(--ease);
+}
+.session-row:hover { background: rgba(14, 107, 79, 0.06); }
+.session-row.active { background: var(--success-bg); }
+
+.session-row td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(28, 35, 31, 0.06);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.session-row-title {
+  font-weight: 700;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-row-badge {
+  text-align: center;
+  width: 26px;
 }
 
 .session-actions {
