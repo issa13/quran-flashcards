@@ -192,13 +192,15 @@ async function renameSession(sessionId, title) {
 
 // -------- attempts sync --------
 // Uses the record_attempt() RPC (see supabase-schema.sql) so the
-// attempt insert and widening the session's stored page range happen
-// in one atomic round trip. Returns true only on a confirmed success —
-// app.js uses this to know when it's safe to lock in the session's
-// page range (see activeSessionHasRangeConflict()).
+// attempt insert, widening the session's stored page range, updating
+// lifetime XP/streak, and awarding any newly-earned badges all happen
+// in one atomic round trip. Returns { ok, newlyEarned } — ok is true
+// only on confirmed success (app.js uses it to know when it's safe to
+// lock in the session's page range), newlyEarned is the array of
+// achievement codes granted by THIS call (usually empty).
 async function recordAttempt({ questionType, page, isCorrect, sessionId, rangeMin, rangeMax }) {
-  if (!sb || !currentUser) return false;
-  const { error } = await sb.rpc("record_attempt", {
+  if (!sb || !currentUser) return { ok: false, newlyEarned: [] };
+  const { data, error } = await sb.rpc("record_attempt", {
     p_session_id: sessionId || null,
     p_question_type: questionType,
     p_page: page,
@@ -208,9 +210,9 @@ async function recordAttempt({ questionType, page, isCorrect, sessionId, rangeMi
   });
   if (error) {
     console.error("recordAttempt error", error);
-    return false;
+    return { ok: false, newlyEarned: [] };
   }
-  return true;
+  return { ok: true, newlyEarned: Array.isArray(data) ? data : [] };
 }
 
 // Per-type breakdown for a single session (used in the stats modal)
@@ -240,6 +242,47 @@ async function fetchProfile() {
   if (error) {
     console.error("fetchProfile error", error);
     return null;
+  }
+  return data;
+}
+
+// -------- lifetime stats & achievements (levels) --------
+async function fetchUserStats() {
+  if (!sb || !currentUser) return null;
+  const { data, error } = await sb
+    .from("user_stats")
+    .select("*")
+    .eq("user_id", currentUser.id)
+    .maybeSingle();
+  if (error) {
+    console.error("fetchUserStats error", error);
+    return null;
+  }
+  return data;
+}
+
+async function fetchAchievementsCatalog() {
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("achievements")
+    .select("*")
+    .order("sort_order", { ascending: true });
+  if (error) {
+    console.error("fetchAchievementsCatalog error", error);
+    return [];
+  }
+  return data;
+}
+
+async function fetchMyAchievements() {
+  if (!sb || !currentUser) return [];
+  const { data, error } = await sb
+    .from("user_achievements")
+    .select("code, earned_at")
+    .eq("user_id", currentUser.id);
+  if (error) {
+    console.error("fetchMyAchievements error", error);
+    return [];
   }
   return data;
 }

@@ -4,6 +4,7 @@
 const guestActions = document.getElementById("guestActions");
 const userActions = document.getElementById("userActions");
 const userNameLabel = document.getElementById("userNameLabel");
+const userLevelBadge = document.getElementById("userLevelBadge");
 
 const authModal = document.getElementById("authModal");
 const loginOpenBtn = document.getElementById("loginOpenBtn");
@@ -40,6 +41,11 @@ const leaderboardModal = document.getElementById("leaderboardModal");
 const leaderboardOpenBtn = document.getElementById("leaderboardOpenBtn");
 const leaderboardCloseBtn = document.getElementById("leaderboardCloseBtn");
 const leaderboardBody = document.getElementById("leaderboardBody");
+
+const achievementsModal = document.getElementById("achievementsModal");
+const achievementsOpenBtn = document.getElementById("achievementsOpenBtn");
+const achievementsCloseBtn = document.getElementById("achievementsCloseBtn");
+const achievementsBody = document.getElementById("achievementsBody");
 
 const logoutBtn = document.getElementById("logoutBtn");
 
@@ -167,9 +173,15 @@ onAuthChange(async (user) => {
     userActions.style.display = "flex";
     const profile = await fetchProfile();
     userNameLabel.textContent = profile?.display_name ? `مرحباً، ${profile.display_name}` : "مرحباً";
+
+    const stats = await fetchUserStats();
+    const xp = stats?.xp || 0;
+    userLevelBadge.textContent = `🎖️ المستوى ${levelFromXp(xp)}`;
+    userLevelBadge.style.display = "inline-flex";
   } else {
     guestActions.style.display = "flex";
     userActions.style.display = "none";
+    userLevelBadge.style.display = "none";
     mySessions = [];
     selectedSessionId = null;
   }
@@ -485,6 +497,55 @@ function escapeHtml(str) {
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
 }
+
+// -------- achievements modal (lifetime level + badges) --------
+function clampPct(n) { return Math.max(0, Math.min(100, n)); }
+
+achievementsOpenBtn.addEventListener("click", async () => {
+  showModal(achievementsModal);
+  achievementsBody.innerHTML = '<div class="status">جاري التحميل...</div>';
+
+  const [stats, catalog, earned] = await Promise.all([
+    fetchUserStats(),
+    fetchAchievementsCatalog(),
+    fetchMyAchievements(),
+  ]);
+
+  const xp = stats?.xp || 0;
+  const level = levelFromXp(xp);
+  const thisLevelStart = xpForLevel(level);
+  const nextLevelStart = xpForLevel(level + 1);
+  const pct = nextLevelStart > thisLevelStart
+    ? clampPct(((xp - thisLevelStart) / (nextLevelStart - thisLevelStart)) * 100)
+    : 100;
+
+  const earnedCodes = new Set((earned || []).map((e) => e.code));
+
+  const summaryHtml = `
+    <div class="level-summary">
+      <div class="level-summary-badge">🎖️ المستوى ${level}</div>
+      <div class="level-summary-xp">${xp} XP</div>
+      <div class="level-progress-bar"><div class="level-progress-fill" style="width:${pct}%"></div></div>
+      <div class="level-progress-caption">${Math.max(0, nextLevelStart - xp)} XP للمستوى التالي</div>
+    </div>`;
+
+  const badgesHtml = (catalog || [])
+    .map((b) => {
+      const isEarned = earnedCodes.has(b.code);
+      return `
+        <div class="badge-item${isEarned ? " earned" : " locked"}">
+          <div class="badge-icon">${b.icon || "🏅"}</div>
+          <div class="badge-title">${escapeHtml(b.title)}</div>
+          <div class="badge-desc">${escapeHtml(b.description)}</div>
+        </div>`;
+    })
+    .join("");
+
+  achievementsBody.innerHTML = summaryHtml + (badgesHtml ? `<div class="badges-grid">${badgesHtml}</div>` : "");
+});
+
+achievementsCloseBtn.addEventListener("click", () => hideModal(achievementsModal));
+achievementsModal.addEventListener("click", (e) => { if (e.target === achievementsModal) hideModal(achievementsModal); });
 
 // Kick off auth
 initAuth();

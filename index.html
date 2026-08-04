@@ -20,7 +20,9 @@
       </div>
       <div id="userActions" class="authbar-side" style="display:none;">
         <span id="userNameLabel" class="user-name"></span>
+        <span id="userLevelBadge" class="level-badge" style="display:none;"></span>
         <button id="statsOpenBtn" class="btn small ghost">📊 إحصائياتي</button>
+        <button id="achievementsOpenBtn" class="btn small ghost">🎖️ إنجازاتي</button>
         <button id="leaderboardOpenBtn" class="btn small ghost">🏆 الصدارة</button>
         <button id="logoutBtn" class="btn small ghost">خروج</button>
       </div>
@@ -50,6 +52,11 @@
             <option value="ayahCount">خمن كم عدد آيات الصفحة؟ (السؤال: أول آية)</option>
             <option value="nextPageFirst">خمن أول آية بالصفحة التالية</option>
             <option value="prevPageFirst">خمن أول آية بالصفحة السابقة</option>
+            <option value="pageEndToNextFirst">من آخر آية: خمن أول آية بالصفحة التالية</option>
+            <option value="pageStartToPrevLast">من أول آية: خمن آخر آية بالصفحة السابقة</option>
+            <option value="juz">خمن الجزء</option>
+            <option value="ayahNumber">خمن رقم الآية بالسورة</option>
+            <option value="fillBlank">أكمل الآية (الكلمة الناقصة)</option>
           </select>
         </div>
 
@@ -106,35 +113,12 @@
 
     <!-- Flashcard -->
     <div class="flashcard-wrap">
-      <div id="flashcard" class="flashcard" tabindex="0" aria-label="بطاقة (اضغط للقلب)">
-        <div class="inner">
-          <div class="face front">
-            <div class="content">
-              <div id="cardModeTitle" class="title">السؤال</div>
-              <div id="cardHelp" class="helper">اختر نوع السؤال ونطاق الصفحات ثم اضغط "سؤال جديد".</div>
-              <div id="qText" class="text">—</div>
-              <div class="sub">اضغط على البطاقة لقلبها (سيتم إيقاف المؤقت)</div>
-            </div>
-          </div>
-
-          <div class="face back">
-            <div class="content">
-              <div class="title">الجواب</div>
-              <div id="aText" class="text">—</div>
-
-              <div id="backHelp" class="helper">
-                اختر ما إذا كان جوابك ✅/❌ لفتح زر "سؤال جديد".
-              </div>
-
-              <div class="back-actions">
-                <button id="btnRight" class="btn good" disabled>✅ صحيح</button>
-                <button id="btnWrong" class="btn bad" disabled>❌ خطأ</button>
-              </div>
-
-              <div class="sub">بعد الاختيار يمكنك المتابعة بسؤال جديد</div>
-            </div>
-          </div>
-        </div>
+      <div id="flashcard" class="mcq-card">
+        <div id="cardModeTitle" class="title">السؤال</div>
+        <div id="cardHelp" class="helper">اختر نوع السؤال ونطاق الصفحات ثم اضغط "سؤال جديد".</div>
+        <div id="qText" class="text">—</div>
+        <div class="sub">اضغط على أحد الخيارات أدناه للإجابة</div>
+        <div id="mcqChoices" class="mcq-choices"></div>
       </div>
     </div>
 
@@ -255,6 +239,19 @@
         الترتيب عادل: يأخذ بعين الاعتبار الدقة وعدد الأسئلة ونطاق الصفحات، فجلسة صغيرة أو ضيقة النطاق لا تتصدّر على حساب جلسة أكبر وأشمل.
       </div>
       <div id="leaderboardBody" class="stats-body">
+        <div class="status">جاري التحميل...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Achievements modal -->
+  <div id="achievementsModal" class="modal-overlay" style="display:none;">
+    <div class="modal modal-wide">
+      <div class="modal-head">
+        <div class="modal-title">🎖️ إنجازاتي</div>
+        <button class="modal-close" id="achievementsCloseBtn">✕</button>
+      </div>
+      <div id="achievementsBody" class="stats-body">
         <div class="status">جاري التحميل...</div>
       </div>
     </div>
