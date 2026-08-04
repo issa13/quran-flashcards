@@ -4,6 +4,35 @@ const EDITION = "quran-uthmani";
 const QURAN_MIN_PAGE = 1;
 const QURAN_MAX_PAGE = 604;
 
+// Standard Madinah Mushaf juz start pages (juz N starts at
+// JUZ_START_PAGE[N-1] and runs up to the page before the next juz's
+// start, or to 604 for juz 30). Used to compute which juz numbers a
+// page range actually covers — no API call needed since this is a
+// fixed, well-known mapping.
+const JUZ_START_PAGE = [
+  1, 22, 42, 62, 82, 102, 121, 142, 162, 182,
+  201, 222, 242, 262, 282, 302, 322, 342, 362, 382,
+  402, 422, 442, 462, 482, 502, 522, 542, 562, 582,
+];
+const MIN_JUZ_CHOICES = 5; // below this, "juz" question generation is blocked
+
+function juzForPage(page) {
+  let juz = 1;
+  for (let i = 0; i < JUZ_START_PAGE.length; i++) {
+    if (page >= JUZ_START_PAGE[i]) juz = i + 1;
+    else break;
+  }
+  return juz;
+}
+
+function juzsInRange(minP, maxP) {
+  const start = juzForPage(minP);
+  const end = juzForPage(maxP);
+  const list = [];
+  for (let j = start; j <= end; j++) list.push(j);
+  return list;
+}
+
 // DOM
 const flashcard = document.getElementById("flashcard");
 const generateBtn = document.getElementById("generateBtn");
@@ -127,6 +156,45 @@ function activeSessionHasRangeConflict(minP, maxP) {
   if (!currentUser || !activeSessionId) return false;
   if (activeSessionRangeMin == null || activeSessionRangeMax == null) return false;
   return minP !== activeSessionRangeMin || maxP !== activeSessionRangeMax;
+}
+
+// Central "can we generate a question right now?" check, used both
+// when the person clicks "سؤال جديد" and reactively whenever they
+// change the question type or page range — so they find out
+// immediately rather than after clicking. Returns a message to show
+// when blocked, or null when it's fine to proceed.
+function checkGenerationBlock(type, minP, maxP) {
+  if (activeSessionHasRangeConflict(minP, maxP)) {
+    const rangeText = `${activeSessionRangeMin}–${activeSessionRangeMax}`;
+    return `لا يمكن الجمع بين نطاقين في نفس الجلسة (النطاق الحالي: ${rangeText}). أنشئ جلسة جديدة من «📊 إحصائياتي» لتستخدم النطاق الجديد.`;
+  }
+
+  if (type === "juz") {
+    const available = juzsInRange(minP, maxP);
+    if (available.length < MIN_JUZ_CHOICES) {
+      const count = available.length;
+      const countText = count === 1 ? "جزءًا واحدًا فقط" : `${count} أجزاء فقط`;
+      return `النطاق المحدد يغطي ${countText}، ويلزم ${MIN_JUZ_CHOICES} أجزاء على الأقل لإنشاء سؤال "خمن الجزء". وسّع نطاق الصفحات أو اختر نوع سؤال آخر.`;
+    }
+  }
+
+  return null;
+}
+
+// Reflects checkGenerationBlock() in the UI immediately on every
+// relevant select/input change, not just when generating fails.
+function refreshGenerationAvailability() {
+  const type = qTypeSelect.value;
+  const { minP, maxP } = getRangeFromSelect();
+  const msg = checkGenerationBlock(type, minP, maxP);
+
+  if (msg) {
+    generateBtn.disabled = true;
+    setStatus(msg);
+  } else if (!hasActiveCard) {
+    generateBtn.disabled = false;
+    setStatus("");
+  }
 }
 
 // Timer state
@@ -585,7 +653,14 @@ async function buildChoices(qa, minP, maxP) {
   } else if (qa.kind === "pageNumber") {
     distractors = pickNumberDistractors(parseInt(correct, 10), minP, maxP, want, 1, 604);
   } else if (qa.kind === "juz") {
-    distractors = pickNumberDistractors(parseInt(correct, 10), 1, 30, want);
+    // Only juz numbers that actually overlap the selected page range —
+    // generateCard() already refuses to get here with fewer than
+    // MIN_JUZ_CHOICES available (see checkGenerationBlock()).
+    const available = juzsInRange(minP, maxP);
+    const correctNum = parseInt(correct, 10);
+    const pool = shuffle(available.filter((j) => j !== correctNum));
+    const juzWant = Math.min(MCQ_CHOICE_COUNT, available.length) - 1;
+    distractors = pool.slice(0, juzWant).map(String);
   } else if (qa.kind === "ayahCount") {
     distractors = pickNearbyNumberDistractors(parseInt(correct, 10), want, 4);
   } else if (qa.kind === "ayahNumber") {
@@ -674,6 +749,9 @@ function finishQuestion(isCorrect) {
       if (result?.ok && result.newlyEarned && result.newlyEarned.length) {
         showAchievementToasts(result.newlyEarned);
       }
+      if (result?.ok && result.xp != null && typeof updateLevelBadge === "function") {
+        updateLevelBadge(result.xp);
+      }
     }).catch(() => { /* non-fatal: keep app usable offline */ });
   }
 }
@@ -686,10 +764,11 @@ async function generateCard() {
 
     const { minP, maxP } = getRangeFromSelect();
 
-    if (activeSessionHasRangeConflict(minP, maxP)) {
-      const rangeText = `${activeSessionRangeMin}–${activeSessionRangeMax}`;
-      setStatus(`لا يمكن الجمع بين نطاقين في نفس الجلسة (النطاق الحالي: ${rangeText}). أنشئ جلسة جديدة من «📊 إحصائياتي» لتستخدم النطاق الجديد.`);
-      alert(`هذه الجلسة بدأت بنطاق صفحات مختلف (${rangeText}). لتغيير النطاق يجب إنشاء جلسة جديدة أولاً من «📊 إحصائياتي».`);
+    const blockMsg = checkGenerationBlock(type, minP, maxP);
+    if (blockMsg) {
+      generateBtn.disabled = true;
+      setStatus(blockMsg);
+      alert(blockMsg);
       return;
     }
 
@@ -780,6 +859,14 @@ qTypeSelect.addEventListener("change", () => {
   cardHelp.textContent = `النوع: ${label} — ${getTypeDescription(type)}`;
 });
 
+// Catch session-range conflicts and insufficient-juz-variety cases as
+// soon as the person changes the type or range — not just when they
+// click "سؤال جديد" and get surprised.
+[qTypeSelect, rangeSelect, customMinEl, customMaxEl].forEach((el) => {
+  el.addEventListener("change", refreshGenerationAvailability);
+});
+refreshGenerationAvailability();
+
 // -------- settings sync (signed-in users only) --------
 let settingsSyncReady = false; // avoid feedback loop while applying remote settings
 
@@ -803,6 +890,7 @@ function applyRemoteSettings(settings) {
   if (settings.custom_max != null) customMaxEl.value = settings.custom_max;
   showHideCustomRange();
   settingsSyncReady = true;
+  refreshGenerationAvailability();
 }
 
 [qTypeSelect, timerSelect, rangeSelect, customMinEl, customMaxEl].forEach((el) => {

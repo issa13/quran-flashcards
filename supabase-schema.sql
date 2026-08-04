@@ -186,14 +186,16 @@ create policy "Users view their own achievements"
 -- 6) record_attempt(): inserts the attempt, widens the session's
 --    range_min/range_max, updates lifetime XP/streak, and awards any
 --    newly-earned badges — all in one atomic call (see
---    supabase-client.js). Returns the codes of badges newly earned
---    by THIS call, so the client can show a toast without a second
---    round trip. security definer so it can write all these tables
---    in one go, but every write is still pinned to auth.uid() — a
---    user can only ever record or widen their own rows.
+--    supabase-client.js). Returns {earned: text[], xp: int} as jsonb —
+--    "earned" are badge codes newly earned by THIS call, "xp" is the
+--    user's updated lifetime XP — so the client can show a toast and
+--    refresh the level badge without a second round trip. security
+--    definer so it can write all these tables in one go, but every
+--    write is still pinned to auth.uid() — a user can only ever
+--    record or widen their own rows.
 --
 --    Dropped and recreated (not just "or replace") because its
---    return type changed from void to text[].
+--    return type changed (void → text[] → jsonb across revisions).
 drop function if exists public.record_attempt(bigint, text, int, boolean, int, int);
 
 create function public.record_attempt(
@@ -204,13 +206,14 @@ create function public.record_attempt(
   p_range_min int default null,
   p_range_max int default null
 )
-returns text[]
+returns jsonb
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
   v_uid uuid := auth.uid();
+  v_xp int;
   v_total_correct int;
   v_best_streak int;
   v_session_total int;
@@ -251,7 +254,7 @@ begin
     ),
     updated_at = now();
 
-  select total_correct, best_streak into v_total_correct, v_best_streak
+  select xp, total_correct, best_streak into v_xp, v_total_correct, v_best_streak
   from public.user_stats where user_id = v_uid;
 
   -- milestone badges (each check is a no-op once already earned,
@@ -322,7 +325,7 @@ begin
     if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
   end if;
 
-  return v_earned;
+  return jsonb_build_object('earned', to_jsonb(v_earned), 'xp', v_xp);
 end;
 $$;
 

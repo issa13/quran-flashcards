@@ -167,6 +167,25 @@ logoutBtn.addEventListener("click", async () => {
 });
 
 // -------- react to auth state --------
+let lastKnownLevel = null;
+
+// Shared so app.js can call this after every answer (using the xp
+// returned by record_attempt) to keep the badge live — without this,
+// the badge only reflected xp as of the last login/page load.
+function updateLevelBadge(xp) {
+  if (!currentUser) return;
+  const level = (typeof levelFromXp === "function") ? levelFromXp(xp || 0) : null;
+  if (level == null) return;
+
+  userLevelBadge.textContent = `🎖️ المستوى ${level}`;
+  userLevelBadge.style.display = "inline-flex";
+
+  if (lastKnownLevel != null && level > lastKnownLevel && typeof showAchievementToast === "function") {
+    showAchievementToast({ icon: "🎖️", title: `وصلت إلى المستوى ${level}!` });
+  }
+  lastKnownLevel = level;
+}
+
 onAuthChange(async (user) => {
   if (user) {
     guestActions.style.display = "none";
@@ -175,13 +194,12 @@ onAuthChange(async (user) => {
     userNameLabel.textContent = profile?.display_name ? `مرحباً، ${profile.display_name}` : "مرحباً";
 
     const stats = await fetchUserStats();
-    const xp = stats?.xp || 0;
-    userLevelBadge.textContent = `🎖️ المستوى ${levelFromXp(xp)}`;
-    userLevelBadge.style.display = "inline-flex";
+    updateLevelBadge(stats?.xp || 0);
   } else {
     guestActions.style.display = "flex";
     userActions.style.display = "none";
     userLevelBadge.style.display = "none";
+    lastKnownLevel = null;
     mySessions = [];
     selectedSessionId = null;
   }
