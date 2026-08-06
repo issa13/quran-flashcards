@@ -31,11 +31,19 @@ const statsOpenBtn = document.getElementById("statsOpenBtn");
 const statsCloseBtn = document.getElementById("statsCloseBtn");
 const statsBody = document.getElementById("statsBody");
 const sessionChips = document.getElementById("sessionChips");
-const newSessionBtn = document.getElementById("newSessionBtn");
-const newSessionNameInput = document.getElementById("newSessionName");
 const sessionActions = document.getElementById("sessionActions");
 const sessionPublicToggle = document.getElementById("sessionPublicToggle");
 const deleteSessionBtn = document.getElementById("deleteSessionBtn");
+
+const createSessionModal = document.getElementById("createSessionModal");
+const openCreateSessionBtn = document.getElementById("openCreateSessionBtn");
+const createSessionCloseBtn = document.getElementById("createSessionCloseBtn");
+const newSessionNameInput = document.getElementById("newSessionName");
+const newSessionRangeSelect = document.getElementById("newSessionRangeSelect");
+const newSessionCustomRangeRow = document.getElementById("newSessionCustomRangeRow");
+const newSessionCustomMin = document.getElementById("newSessionCustomMin");
+const newSessionCustomMax = document.getElementById("newSessionCustomMax");
+const createSessionSubmitBtn = document.getElementById("createSessionSubmitBtn");
 
 const leaderboardModal = document.getElementById("leaderboardModal");
 const leaderboardOpenBtn = document.getElementById("leaderboardOpenBtn");
@@ -214,36 +222,62 @@ statsOpenBtn.addEventListener("click", async () => {
 statsCloseBtn.addEventListener("click", () => hideModal(statsModal));
 statsModal.addEventListener("click", (e) => { if (e.target === statsModal) hideModal(statsModal); });
 
-newSessionNameInput.addEventListener("input", () => {
-  newSessionBtn.disabled = !newSessionNameInput.value.trim();
-});
+// -------- create session modal (name + fixed page range, together) --------
+function showHideNewSessionCustomRange() {
+  newSessionCustomRangeRow.style.display = (newSessionRangeSelect.value === "custom") ? "flex" : "none";
+}
+newSessionRangeSelect.addEventListener("change", showHideNewSessionCustomRange);
+
+function refreshCreateSessionSubmitState() {
+  createSessionSubmitBtn.disabled = !newSessionNameInput.value.trim();
+}
+newSessionNameInput.addEventListener("input", refreshCreateSessionSubmitState);
 
 newSessionNameInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && newSessionNameInput.value.trim()) submitNewSession();
+  if (e.key === "Enter" && !createSessionSubmitBtn.disabled) createSessionSubmitBtn.click();
 });
 
-newSessionBtn.addEventListener("click", submitNewSession);
+openCreateSessionBtn.addEventListener("click", () => {
+  newSessionNameInput.value = "";
+  newSessionRangeSelect.value = "all";
+  newSessionCustomMin.value = 1;
+  newSessionCustomMax.value = 604;
+  showHideNewSessionCustomRange();
+  refreshCreateSessionSubmitState();
+  showModal(createSessionModal);
+});
 
-async function submitNewSession() {
+createSessionCloseBtn.addEventListener("click", () => hideModal(createSessionModal));
+createSessionModal.addEventListener("click", (e) => { if (e.target === createSessionModal) hideModal(createSessionModal); });
+
+createSessionSubmitBtn.addEventListener("click", async () => {
   const name = newSessionNameInput.value.trim();
   if (!name) return;
 
-  newSessionBtn.disabled = true;
-  const newId = await createSession(name);
-  newSessionBtn.disabled = false;
+  const range = (typeof resolveRangeBounds === "function")
+    ? resolveRangeBounds(newSessionRangeSelect.value, newSessionCustomMin.value, newSessionCustomMax.value)
+    : { minP: 1, maxP: 604 };
 
-  if (newId) {
-    newSessionNameInput.value = "";
-    newSessionBtn.disabled = true;
+  createSessionSubmitBtn.disabled = true;
+  const newId = await createSession(name, range.minP, range.maxP);
+  createSessionSubmitBtn.disabled = false;
 
-    // The new session becomes the one and only session new attempts
-    // are recorded against, and the panel score starts fresh for it.
-    if (typeof syncActiveSessionId === "function") syncActiveSessionId(newId);
-    if (typeof resetScore === "function") resetScore();
-
-    await refreshSessionsAndShow(newId);
+  if (!newId) {
+    alert("تعذّر إنشاء الجلسة. حاول مرة أخرى.");
+    return;
   }
-}
+
+  // The new session becomes the one and only session new attempts
+  // are recorded against, its range is fixed from now on, and the
+  // panel score starts fresh for it.
+  if (typeof syncActiveSessionId === "function") syncActiveSessionId(newId, range.minP, range.maxP);
+  if (typeof resetScore === "function") resetScore();
+  if (typeof showSessionRangeUI === "function") showSessionRangeUI(range.minP, range.maxP);
+  if (typeof refreshQuestionTypeAvailability === "function") await refreshQuestionTypeAvailability();
+
+  hideModal(createSessionModal);
+  await refreshSessionsAndShow(newId);
+});
 
 // Toggling a session's leaderboard visibility. Only one session per
 // user may be public at a time — turning this one on while another

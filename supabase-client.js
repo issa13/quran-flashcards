@@ -101,11 +101,20 @@ async function setActiveSessionId(sessionId) {
 }
 
 // -------- sessions --------
-async function createSession(title) {
+// rangeMin/rangeMax are set once, here, at creation — the page range
+// is now chosen when the session is created (see auth-ui.js's
+// create-session modal) and is permanent afterward (enforced by the
+// prevent_range_change trigger in supabase-schema.sql).
+async function createSession(title, rangeMin, rangeMax) {
   if (!sb || !currentUser) return null;
   const { data, error } = await sb
     .from("sessions")
-    .insert({ user_id: currentUser.id, title: title || "جلسة جديدة" })
+    .insert({
+      user_id: currentUser.id,
+      title: title || "جلسة جديدة",
+      range_min: rangeMin ?? null,
+      range_max: rangeMax ?? null,
+    })
     .select()
     .single();
   if (error) {
@@ -117,11 +126,11 @@ async function createSession(title) {
 }
 
 // Returns { id, rangeMin, rangeMax } for the session that should
-// receive new attempts (rangeMin/rangeMax are null for a session
-// that hasn't had its first attempt recorded yet — see app.js's
-// activeSessionHasRangeConflict()). Verifies the previously-active
-// session still exists (it may have been deleted); creates a fresh
-// default one if needed.
+// receive new attempts (rangeMin/rangeMax are set once, at creation —
+// see createSession() — and are null only for an old session created
+// before that was required). Verifies the previously-active session
+// still exists (it may have been deleted); creates a fresh default
+// one (full-Quran range) if needed.
 async function ensureActiveSession() {
   if (!sb || !currentUser) return null;
 
@@ -135,8 +144,8 @@ async function ensureActiveSession() {
     if (data) return { id: data.id, rangeMin: data.range_min, rangeMax: data.range_max };
   }
 
-  const newId = await createSession("الجلسة الأولى");
-  return { id: newId, rangeMin: null, rangeMax: null };
+  const newId = await createSession("الجلسة الأولى", 1, 604);
+  return { id: newId, rangeMin: 1, rangeMax: 604 };
 }
 
 async function fetchMySessions() {

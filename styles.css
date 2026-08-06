@@ -99,6 +99,7 @@ body::before {
 .user-identity {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   flex-wrap: wrap;
 }
@@ -114,12 +115,10 @@ body::before {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: center;
 }
 
 @media (max-width: 480px) {
-  .user-identity { justify-content: center; }
-  .user-buttons { justify-content: center; }
   .user-buttons .btn.small.ghost {
     flex: 1 1 auto;
     padding: 7px 8px;
@@ -638,9 +637,16 @@ select:focus, input:focus {
   margin-bottom: 12px;
 }
 
-.session-name-input {
-  flex: 1;
-  min-width: 0;
+/* Read-only fixed-range display shown to signed-in users in place of
+   the guest range picker (see #sessionRangeRow in index.html). */
+.session-range-display {
+  padding: 11px 12px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid rgba(28, 35, 31, 0.14);
+  background: rgba(28, 35, 31, 0.03);
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--emerald-dark);
 }
 
 .sessions-table-wrap {

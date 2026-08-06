@@ -342,8 +342,8 @@ begin
   for r in
     select distinct user_id from public.attempts where session_id is null
   loop
-    insert into public.sessions (user_id, title)
-    values (r.user_id, 'الجلسة الأولى')
+    insert into public.sessions (user_id, title, range_min, range_max)
+    values (r.user_id, 'الجلسة الأولى', 1, 604)
     returning id into new_id;
 
     update public.attempts
@@ -366,8 +366,8 @@ begin
   insert into public.profiles (id, display_name)
   values (new.id, coalesce(new.raw_user_meta_data->>'display_name', 'مستخدم'));
 
-  insert into public.sessions (user_id, title)
-  values (new.id, 'الجلسة الأولى')
+  insert into public.sessions (user_id, title, range_min, range_max)
+  values (new.id, 'الجلسة الأولى', 1, 604)
   returning id into new_session_id;
 
   insert into public.user_settings (user_id, active_session_id)
@@ -451,6 +451,31 @@ group by s.id, s.user_id, p.display_name, s.title, s.range_min, s.range_max, s.c
 create unique index if not exists sessions_one_public_per_user
   on public.sessions (user_id)
   where is_public;
+
+-- 13) Page range is chosen once, at session creation, and is
+--     permanent from then on (see auth-ui.js's create-session modal).
+--     This trigger is the real guarantee: if OLD.range_min/range_max
+--     are already set, any UPDATE trying to change them is silently
+--     pinned back to the original value instead of erroring — so it
+--     can never break record_attempt()'s harmless no-op widen call
+--     for a session whose range was already fixed at creation.
+create or replace function public.prevent_range_change()
+returns trigger as $$
+begin
+  if old.range_min is not null then
+    new.range_min := old.range_min;
+  end if;
+  if old.range_max is not null then
+    new.range_max := old.range_max;
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists sessions_prevent_range_change on public.sessions;
+create trigger sessions_prevent_range_change
+  before update on public.sessions
+  for each row execute procedure public.prevent_range_change();
 
 -- ============================================================
 -- Done. Next steps:

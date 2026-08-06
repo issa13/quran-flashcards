@@ -14,7 +14,12 @@ const JUZ_START_PAGE = [
   201, 222, 242, 262, 282, 302, 322, 342, 362, 382,
   402, 422, 442, 462, 482, 502, 522, 542, 562, 582,
 ];
-const MIN_JUZ_CHOICES = 5; // below this, "juz" question generation is blocked
+
+// Below this many valid answers, a question type is hidden from the
+// dropdown (and generation is blocked as a safety net). Applies to
+// "pageNumber", "surah", and "juz" — the three types whose whole
+// point is telling several distinct values apart.
+const MIN_MCQ_ANSWERS = 5;
 
 function juzForPage(page) {
   let juz = 1;
@@ -44,31 +49,24 @@ const progressWrap = document.querySelector(".progress-wrap");
 
 const qTypeSelect = document.getElementById("qTypeSelect");
 const timerSelect = document.getElementById("timerSelect");
-const rangeSelect = document.getElementById("rangeSelect");
 
+// Guest-only range picker (signed-in users' range comes from their
+// active session instead — see sessionRangeRow/sessionRangeDisplay).
+const guestRangeRow = document.getElementById("guestRangeRow");
+const rangeSelect = document.getElementById("rangeSelect");
 const customRangeRow = document.getElementById("customRangeRow");
 const customMinEl = document.getElementById("customMin");
 const customMaxEl = document.getElementById("customMax");
+
+// Signed-in-only fixed range display
+const sessionRangeRow = document.getElementById("sessionRangeRow");
+const sessionRangeDisplay = document.getElementById("sessionRangeDisplay");
 
 const scoreBox = document.getElementById("scoreBox");
 const cardHelp = document.getElementById("cardHelp");
 
 // -------- MCQ config --------
 const MCQ_CHOICE_COUNT = 6;
-
-// Curated pool for fill-in-the-blank distractors (common recurring
-// Quranic words) — chosen over "same page" or "same ayah" words so
-// wrong choices are always plausible without needing extra fetches.
-const FILL_BLANK_WORD_POOL = [
-  "الله", "الرحمن", "الرحيم", "رب", "العالمين", "الذين", "آمنوا", "الصالحات",
-  "الكافرين", "المؤمنين", "السماوات", "الأرض", "اليوم", "الآخرة", "الجنة",
-  "النار", "رحمة", "عذاب", "هدى", "نور", "كتاب", "آية", "آيات", "رسول",
-  "نبي", "قوم", "سبيل", "ملك", "عرش", "صراط", "مستقيم", "خير", "شر",
-  "صبر", "شكر", "توبة", "مغفرة", "رزق", "قلوب", "أنفس", "عباد", "الناس",
-  "الدنيا", "حق", "باطل", "عدل", "ظلم", "فضل", "نعمة", "بيت", "جبل",
-  "بحر", "الليل", "النهار", "الشمس", "القمر", "النجوم", "الملائكة",
-  "الشيطان", "صلاة", "زكاة",
-];
 
 // Client-side mirror of the achievements catalog in supabase-schema.sql
 // (icon + title only) so a toast can be shown immediately without an
@@ -132,69 +130,21 @@ let currentRangeMax = null;
 // Active session (signed-in users only) — always the user's last
 // (most recently created) session, and the ONLY session new attempts
 // get attached to. Browsing other sessions in the stats modal never
-// changes this. Exposed to auth-ui.js via the getter/setter below.
+// changes this.
 //
-// activeSessionRangeMin/Max is the page range this session is LOCKED
-// to (null until its first answered question). A session may only
-// ever be quizzed on one range — see activeSessionHasRangeConflict()
-// below — so changing the range mid-session requires a new session
-// rather than silently widening this one's stored range.
+// activeSessionRangeMin/Max is the page range this session was
+// created with — chosen once, in the "create session" modal, and
+// permanent from then on (enforced by a DB trigger too — see
+// supabase-schema.sql). Exposed to auth-ui.js via the getter/setter
+// below.
 let activeSessionId = null;
 let activeSessionRangeMin = null;
 let activeSessionRangeMax = null;
 function getActiveSessionId() { return activeSessionId; }
-function syncActiveSessionId(id) {
+function syncActiveSessionId(id, rangeMin, rangeMax) {
   activeSessionId = id;
-  activeSessionRangeMin = null;
-  activeSessionRangeMax = null;
-}
-
-// True when the given range differs from the range this session is
-// already locked to. Guests and brand-new sessions (no locked range
-// yet) never conflict.
-function activeSessionHasRangeConflict(minP, maxP) {
-  if (!currentUser || !activeSessionId) return false;
-  if (activeSessionRangeMin == null || activeSessionRangeMax == null) return false;
-  return minP !== activeSessionRangeMin || maxP !== activeSessionRangeMax;
-}
-
-// Central "can we generate a question right now?" check, used both
-// when the person clicks "سؤال جديد" and reactively whenever they
-// change the question type or page range — so they find out
-// immediately rather than after clicking. Returns a message to show
-// when blocked, or null when it's fine to proceed.
-function checkGenerationBlock(type, minP, maxP) {
-  if (activeSessionHasRangeConflict(minP, maxP)) {
-    const rangeText = `${activeSessionRangeMin}–${activeSessionRangeMax}`;
-    return `لا يمكن الجمع بين نطاقين في نفس الجلسة (النطاق الحالي: ${rangeText}). أنشئ جلسة جديدة من «📊 إحصائياتي» لتستخدم النطاق الجديد.`;
-  }
-
-  if (type === "juz") {
-    const available = juzsInRange(minP, maxP);
-    if (available.length < MIN_JUZ_CHOICES) {
-      const count = available.length;
-      const countText = count === 1 ? "جزءًا واحدًا فقط" : `${count} أجزاء فقط`;
-      return `النطاق المحدد يغطي ${countText}، ويلزم ${MIN_JUZ_CHOICES} أجزاء على الأقل لإنشاء سؤال "خمن الجزء". وسّع نطاق الصفحات أو اختر نوع سؤال آخر.`;
-    }
-  }
-
-  return null;
-}
-
-// Reflects checkGenerationBlock() in the UI immediately on every
-// relevant select/input change, not just when generating fails.
-function refreshGenerationAvailability() {
-  const type = qTypeSelect.value;
-  const { minP, maxP } = getRangeFromSelect();
-  const msg = checkGenerationBlock(type, minP, maxP);
-
-  if (msg) {
-    generateBtn.disabled = true;
-    setStatus(msg);
-  } else if (!hasActiveCard) {
-    generateBtn.disabled = false;
-    setStatus("");
-  }
+  activeSessionRangeMin = rangeMin ?? null;
+  activeSessionRangeMax = rangeMax ?? null;
 }
 
 // Timer state
@@ -202,8 +152,9 @@ let timerInterval = null;
 let timerStart = 0;
 let timerDurationMs = 0;
 
-// Cache
+// Caches
 const pageCache = new Map();
+let surahCatalogPromise = null;
 
 function setStatus(msg) { statusEl.textContent = msg || ""; }
 
@@ -264,17 +215,14 @@ function showAchievementToasts(codes) {
   });
 }
 
-// -------- range select + custom --------
-function showHideCustomRange() {
-  customRangeRow.style.display = (rangeSelect.value === "custom") ? "flex" : "none";
-}
-rangeSelect.addEventListener("change", showHideCustomRange);
-showHideCustomRange();
-
-function getRangeFromSelect() {
-  if (rangeSelect.value === "custom") {
-    let minP = parseInt(customMinEl.value, 10);
-    let maxP = parseInt(customMaxEl.value, 10);
+// -------- range resolution --------
+// Pure mapping from a range key (+ custom bounds) to {minP, maxP}.
+// Shared between the guest picker in the main panel and the "create
+// session" modal's own picker (see auth-ui.js).
+function resolveRangeBounds(rangeKey, customMinRaw, customMaxRaw) {
+  if (rangeKey === "custom") {
+    let minP = parseInt(customMinRaw, 10);
+    let maxP = parseInt(customMaxRaw, 10);
     if (Number.isNaN(minP)) minP = 1;
     if (Number.isNaN(maxP)) maxP = 604;
 
@@ -282,12 +230,10 @@ function getRangeFromSelect() {
     maxP = clamp(maxP, 1, 604);
     if (minP > maxP) [minP, maxP] = [maxP, minP];
 
-    customMinEl.value = minP;
-    customMaxEl.value = maxP;
     return { minP, maxP };
   }
 
-  switch (rangeSelect.value) {
+  switch (rangeKey) {
     case "first100": return { minP: 1, maxP: 100 };
     case "juz1": return { minP: 1, maxP: 21 };
     case "juz30": return { minP: 582, maxP: 604 };
@@ -296,6 +242,163 @@ function getRangeFromSelect() {
     case "zahrawain": return { minP: 2, maxP: 76 };
     default: return { minP: 1, maxP: 604 };
   }
+}
+
+function showHideCustomRange() {
+  customRangeRow.style.display = (rangeSelect.value === "custom") ? "flex" : "none";
+}
+rangeSelect.addEventListener("change", showHideCustomRange);
+showHideCustomRange();
+
+function getGuestRangeFromSelect() {
+  const bounds = resolveRangeBounds(rangeSelect.value, customMinEl.value, customMaxEl.value);
+  if (rangeSelect.value === "custom") {
+    customMinEl.value = bounds.minP;
+    customMaxEl.value = bounds.maxP;
+  }
+  return bounds;
+}
+
+// The range actually in effect right now: the active session's fixed
+// range when signed in (null if that session somehow has none — an
+// old session from before ranges were required), or the guest
+// picker's current value otherwise.
+function getActiveRange() {
+  if (currentUser) {
+    if (activeSessionId && activeSessionRangeMin != null && activeSessionRangeMax != null) {
+      return { minP: activeSessionRangeMin, maxP: activeSessionRangeMax };
+    }
+    return null;
+  }
+  return getGuestRangeFromSelect();
+}
+
+function setActiveRangeDisplay(minP, maxP) {
+  sessionRangeDisplay.textContent = (minP != null && maxP != null) ? `${minP}–${maxP}` : "—";
+}
+
+function showGuestRangeUI() {
+  guestRangeRow.style.display = "flex";
+  showHideCustomRange();
+  sessionRangeRow.style.display = "none";
+}
+
+function showSessionRangeUI(minP, maxP) {
+  guestRangeRow.style.display = "none";
+  customRangeRow.style.display = "none";
+  sessionRangeRow.style.display = "flex";
+  setActiveRangeDisplay(minP, maxP);
+}
+
+// -------- generation gating --------
+const ADJACENT_TYPES = new Set(["nextPageFirst", "prevPageFirst", "pageEndToNextFirst", "pageStartToPrevLast"]);
+
+function rangeTooNarrowMessage(typeLabel, count, singularUnit, pluralUnit) {
+  const countText = count === 1 ? `${singularUnit} واحدة فقط` : `${count} ${pluralUnit} فقط`;
+  return `النطاق المحدد يغطي ${countText}، ويلزم ${MIN_MCQ_ANSWERS} على الأقل لإنشاء سؤال "${typeLabel}". وسّع نطاق الصفحات أو اختر نوع سؤال آخر.`;
+}
+
+// Central "can we generate a question of this type, in this range,
+// right now?" check. Returns a message to show when blocked, or null
+// when it's fine to proceed.
+async function checkGenerationBlock(type, minP, maxP) {
+  if (ADJACENT_TYPES.has(type) && maxP <= minP) {
+    return "يلزم نطاق يشمل أكثر من صفحة واحدة لإنشاء هذا النوع من الأسئلة. وسّع نطاق الصفحات أو اختر نوع سؤال آخر.";
+  }
+
+  if (type === "juz") {
+    const available = juzsInRange(minP, maxP);
+    if (available.length < MIN_MCQ_ANSWERS) {
+      return rangeTooNarrowMessage("خمن الجزء", available.length, "جزء", "أجزاء");
+    }
+  }
+
+  if (type === "pageNumber") {
+    const available = maxP - minP + 1;
+    if (available < MIN_MCQ_ANSWERS) {
+      return rangeTooNarrowMessage("خمن رقم الصفحة", available, "صفحة", "صفحات");
+    }
+  }
+
+  if (type === "surah") {
+    const available = await surahsInRange(minP, maxP);
+    if (available.length < MIN_MCQ_ANSWERS) {
+      return rangeTooNarrowMessage("خمن السورة", available.length, "سورة", "سور");
+    }
+  }
+
+  return null;
+}
+
+// Wraps range resolution + checkGenerationBlock() together — the one
+// function both generateCard() and the reactive UI checks need.
+async function getBlockMessageForCurrentState(type) {
+  const range = getActiveRange();
+  if (!range) {
+    if (currentUser) {
+      return "هذه الجلسة ليس لها نطاق صفحات محدد. أنشئ جلسة جديدة من «📊 إحصائياتي» ← «+ جلسة جديدة» للمتابعة.";
+    }
+    return "الرجاء اختيار نطاق صفحات صالح.";
+  }
+  return await checkGenerationBlock(type, range.minP, range.maxP);
+}
+
+// Reflects getBlockMessageForCurrentState() in the UI immediately on
+// every relevant change, not just when generating fails.
+async function refreshGenerationAvailability() {
+  const type = qTypeSelect.value;
+  const msg = await getBlockMessageForCurrentState(type);
+
+  if (msg) {
+    generateBtn.disabled = true;
+    setStatus(msg);
+  } else if (!hasActiveCard) {
+    generateBtn.disabled = false;
+    setStatus("");
+  }
+}
+
+function setOptionAvailability(value, available) {
+  const opt = qTypeSelect.querySelector(`option[value="${value}"]`);
+  if (!opt) return;
+  opt.disabled = !available;
+  opt.hidden = !available;
+}
+
+// Hides/disables question-type options that can't produce enough
+// valid answers in the current range (pageNumber/surah/juz need
+// MIN_MCQ_ANSWERS distinct values; the adjacent-page types need more
+// than one page). Falls back the selection to "first" if the
+// currently-chosen type just became unavailable.
+async function refreshQuestionTypeAvailability() {
+  const range = getActiveRange();
+  if (!range) {
+    await refreshGenerationAvailability();
+    return;
+  }
+  const { minP, maxP } = range;
+
+  const pageCount = maxP - minP + 1;
+  const juzCount = juzsInRange(minP, maxP).length;
+  let surahCount = 0;
+  try {
+    surahCount = (await surahsInRange(minP, maxP)).length;
+  } catch (e) { /* leave at 0 → hides the option safely */ }
+
+  setOptionAvailability("pageNumber", pageCount >= MIN_MCQ_ANSWERS);
+  setOptionAvailability("surah", surahCount >= MIN_MCQ_ANSWERS);
+  setOptionAvailability("juz", juzCount >= MIN_MCQ_ANSWERS);
+
+  const multiPage = maxP > minP;
+  ADJACENT_TYPES.forEach((t) => setOptionAvailability(t, multiPage));
+
+  const selectedOption = qTypeSelect.querySelector(`option[value="${qTypeSelect.value}"]`);
+  if (selectedOption && selectedOption.disabled) {
+    qTypeSelect.value = "first";
+    cardHelp.textContent = `النوع: ${getTypeLabel("first")} — ${getTypeDescription("first")}`;
+  }
+
+  await refreshGenerationAvailability();
 }
 
 // -------- timer --------
@@ -356,6 +459,46 @@ async function fetchPageAyahs(page) {
   return ayahs;
 }
 
+// Fetches the full 114-surah list once (number + name), cached
+// forever — used to translate a surah-number range into real names
+// without ever hardcoding page boundaries (which would risk being
+// wrong for Quranic content).
+function fetchSurahCatalog() {
+  if (surahCatalogPromise) return surahCatalogPromise;
+  surahCatalogPromise = fetch(`${API_BASE}surah`, { cache: "no-store" })
+    .then((res) => { if (!res.ok) throw new Error("HTTP error"); return res.json(); })
+    .then((json) => json?.data || [])
+    .catch((e) => { surahCatalogPromise = null; throw e; });
+  return surahCatalogPromise;
+}
+
+// Exact list of surah names whose pages overlap [minP, maxP]. Surahs
+// never interleave (surah numbers only increase with page number), so
+// the surah at minP's first ayah and the surah at maxP's last ayah
+// bound the whole set — everything in between the two numbers is
+// covered too.
+async function surahsInRange(minP, maxP) {
+  try {
+    const [minAyahs, maxAyahs, catalog] = await Promise.all([
+      fetchPageAyahs(minP),
+      fetchPageAyahs(maxP),
+      fetchSurahCatalog(),
+    ]);
+    const lowSurah = minAyahs?.[0]?.surah?.number;
+    const highSurah = maxAyahs?.[maxAyahs.length - 1]?.surah?.number;
+    if (lowSurah == null || highSurah == null || !catalog.length) return [];
+
+    const list = [];
+    for (let n = lowSurah; n <= highSurah; n++) {
+      const entry = catalog.find((s) => s.number === n);
+      if (entry) list.push(clean(entry.name));
+    }
+    return list;
+  } catch (e) {
+    return [];
+  }
+}
+
 function getSurahName(ayah) {
   const s = ayah?.surah || {};
   return clean(s.name) || "غير معروف";
@@ -397,7 +540,6 @@ function getTypeDescription(type) {
     case "pageStartToPrevLast": return "السؤال هو أول آية في الصفحة، والجواب هو آخر آية في الصفحة السابقة.";
     case "juz": return "سيظهر لك آية، والمطلوب أن تحدد رقم الجزء الذي تنتمي إليه.";
     case "ayahNumber": return "سيظهر لك آية، والمطلوب أن تخمّن رقمها داخل سورتها.";
-    case "fillBlank": return "سيظهر لك جزء من آية وبه كلمة ناقصة، والمطلوب اختيار الكلمة الصحيحة.";
     default: return "اختر نوع السؤال ثم اضغط سؤال جديد.";
   }
 }
@@ -416,20 +558,17 @@ function getTypeLabel(type) {
     case "pageStartToPrevLast": return "من أول آية: خمن آخر آية بالصفحة السابقة";
     case "juz": return "خمن الجزء";
     case "ayahNumber": return "خمن رقم الآية بالسورة";
-    case "fillBlank": return "أكمل الآية (الكلمة الناقصة)";
     default: return "—";
   }
 }
-
-const ADJACENT_TYPES = new Set(["nextPageFirst", "prevPageFirst", "pageEndToNextFirst", "pageStartToPrevLast"]);
 
 // -------- QA builders --------
 // Every builder returns { q, a, kind } (or null on failure). `kind`
 // tells buildChoices() which distractor strategy to use:
 //   "text"   → other ayah texts (first/last/previous/adjacent types)
-//   "surah"  → other surah names
-//   "pageNumber" / "juz" / "ayahCount" / "ayahNumber" → nearby numbers
-//   "word"   → other words from the curated pool (fill-in-the-blank)
+//   "surah"  → other surah names (from surahsInRange)
+//   "pageNumber" / "juz" → other values from the same range
+//   "ayahCount" / "ayahNumber" → nearby numbers
 function pickQAFromPage(ayahs, type, page) {
   if (!ayahs || ayahs.length < 2) return null;
 
@@ -479,33 +618,14 @@ function pickQAFromPage(ayahs, type, page) {
     return { q: clean(candidate.text), a: String(num), kind: "ayahNumber" };
   }
 
-  if (type === "fillBlank") {
-    return buildFillBlankQA(ayahs);
-  }
-
   return null;
 }
 
-function buildFillBlankQA(ayahs) {
-  // Prefer an ayah with enough words that blanking one still leaves
-  // a meaningful clue.
-  const withEnoughWords = ayahs.filter((a) => clean(a.text).split(/\s+/).filter(Boolean).length >= 4);
-  const pool = withEnoughWords.length ? withEnoughWords : ayahs;
-  const candidate = pool[randInt(0, pool.length - 1)];
-  const words = clean(candidate.text).split(/\s+/).filter(Boolean);
-  if (words.length < 2) return null;
-
-  // Avoid blanking the very first/last word when there's enough room,
-  // for a fairer clue.
-  const lowIdx = words.length > 3 ? 1 : 0;
-  const highIdx = words.length > 3 ? words.length - 2 : words.length - 1;
-  const idx = randInt(lowIdx, highIdx);
-  const word = words[idx];
-
-  const masked = words.map((w, i) => (i === idx ? "____" : w)).join(" ");
-  return { q: masked, a: word, kind: "word" };
-}
-
+// page is guaranteed (by generateCard()) to leave room for the
+// adjacent page within the selected range — nextPageFirst/
+// pageEndToNextFirst never see page === the range's last page, and
+// prevPageFirst/pageStartToPrevLast never see page === the range's
+// first page — so these never reach outside the selected range.
 async function pickAdjacentPageQA(type, page) {
   const currentAyahs = await fetchPageAyahs(page);
   if (!currentAyahs || currentAyahs.length < 1) return null;
@@ -573,57 +693,6 @@ async function pickTextDistractors(excludeSet, minP, maxP, count) {
   return results;
 }
 
-async function collectSurahCandidates(excludeSet, low, high, count) {
-  const results = [];
-  const seen = new Set(excludeSet);
-  let guard = 0;
-  while (results.length < count && guard < count * 12) {
-    guard++;
-    const p = randInt(low, high);
-    try {
-      const ayahs = await fetchPageAyahs(p);
-      if (!ayahs || !ayahs.length) continue;
-      const name = getSurahName(ayahs[randInt(0, ayahs.length - 1)]);
-      if (name && !seen.has(name)) {
-        seen.add(name);
-        results.push(name);
-      }
-    } catch (e) { /* skip failed page fetch */ }
-  }
-  return results;
-}
-
-async function pickSurahDistractors(excludeName, minP, maxP, count) {
-  // A narrow range (e.g. one surah's page span) may not contain any
-  // other surah at all — widen to the full Quran whenever needed, since
-  // the whole point of this question type is telling surahs apart.
-  let results = await collectSurahCandidates(new Set([excludeName]), minP, maxP, count);
-  if (results.length < count) {
-    const more = await collectSurahCandidates(new Set([excludeName, ...results]), 1, 604, count - results.length);
-    results = results.concat(more);
-  }
-  return results;
-}
-
-function pickNumberDistractors(correctNum, low, high, count, fallbackLow, fallbackHigh) {
-  const pool = new Set();
-  let guard = 0;
-  while (pool.size < count && guard < count * 25) {
-    guard++;
-    const n = randInt(low, high);
-    if (n !== correctNum) pool.add(n);
-  }
-  if (pool.size < count && fallbackLow != null && fallbackHigh != null) {
-    guard = 0;
-    while (pool.size < count && guard < count * 25) {
-      guard++;
-      const n = randInt(fallbackLow, fallbackHigh);
-      if (n !== correctNum) pool.add(n);
-    }
-  }
-  return Array.from(pool).slice(0, count).map(String);
-}
-
 function pickNearbyNumberDistractors(correctNum, count, spread) {
   const pool = new Set();
   let widen = spread;
@@ -638,24 +707,25 @@ function pickNearbyNumberDistractors(correctNum, count, spread) {
   return Array.from(pool).slice(0, count).map(String);
 }
 
-function pickWordDistractors(correctWord, count) {
-  const pool = FILL_BLANK_WORD_POOL.filter((w) => w !== correctWord);
-  return shuffle(pool).slice(0, count);
-}
-
 async function buildChoices(qa, minP, maxP) {
   const correct = qa.a;
   const want = MCQ_CHOICE_COUNT - 1;
   let distractors = [];
 
   if (qa.kind === "surah") {
-    distractors = await pickSurahDistractors(correct, minP, maxP, want);
+    // Strictly from within the selected range — generateCard() already
+    // refuses to reach here with fewer than MIN_MCQ_ANSWERS available.
+    const available = await surahsInRange(minP, maxP);
+    const pool = shuffle(available.filter((n) => n !== correct));
+    const surahWant = Math.min(MCQ_CHOICE_COUNT, available.length) - 1;
+    distractors = pool.slice(0, surahWant);
   } else if (qa.kind === "pageNumber") {
-    distractors = pickNumberDistractors(parseInt(correct, 10), minP, maxP, want, 1, 604);
+    const correctNum = parseInt(correct, 10);
+    const pool = [];
+    for (let p = minP; p <= maxP; p++) if (p !== correctNum) pool.push(p);
+    const pageWant = Math.min(MCQ_CHOICE_COUNT, maxP - minP + 1) - 1;
+    distractors = shuffle(pool).slice(0, pageWant).map(String);
   } else if (qa.kind === "juz") {
-    // Only juz numbers that actually overlap the selected page range —
-    // generateCard() already refuses to get here with fewer than
-    // MIN_JUZ_CHOICES available (see checkGenerationBlock()).
     const available = juzsInRange(minP, maxP);
     const correctNum = parseInt(correct, 10);
     const pool = shuffle(available.filter((j) => j !== correctNum));
@@ -665,8 +735,6 @@ async function buildChoices(qa, minP, maxP) {
     distractors = pickNearbyNumberDistractors(parseInt(correct, 10), want, 4);
   } else if (qa.kind === "ayahNumber") {
     distractors = pickNearbyNumberDistractors(parseInt(correct, 10), want, 8);
-  } else if (qa.kind === "word") {
-    distractors = pickWordDistractors(correct, want);
   } else {
     distractors = await pickTextDistractors(new Set([qa.q, correct]), minP, maxP, want);
   }
@@ -740,12 +808,6 @@ function finishQuestion(isCorrect) {
       rangeMin: currentRangeMin,
       rangeMax: currentRangeMax,
     }).then((result) => {
-      // First successfully-recorded attempt in a fresh session locks
-      // its range going forward (see activeSessionHasRangeConflict()).
-      if (result?.ok && activeSessionId && activeSessionRangeMin == null && activeSessionRangeMax == null) {
-        activeSessionRangeMin = currentRangeMin;
-        activeSessionRangeMax = currentRangeMax;
-      }
       if (result?.ok && result.newlyEarned && result.newlyEarned.length) {
         showAchievementToasts(result.newlyEarned);
       }
@@ -762,9 +824,7 @@ async function generateCard() {
     const type = qTypeSelect.value;
     const label = getTypeLabel(type);
 
-    const { minP, maxP } = getRangeFromSelect();
-
-    const blockMsg = checkGenerationBlock(type, minP, maxP);
+    const blockMsg = await getBlockMessageForCurrentState(type);
     if (blockMsg) {
       generateBtn.disabled = true;
       setStatus(blockMsg);
@@ -772,14 +832,24 @@ async function generateCard() {
       return;
     }
 
+    const range = getActiveRange();
+    const { minP, maxP } = range; // non-null here — blockMsg would have caught it otherwise
+
     // show description inside card
     cardHelp.textContent = `النوع: ${label} — ${getTypeDescription(type)}`;
 
-    let page = randInt(minP, maxP);
-
-    // boundary safety for adjacent-page types
-    if (type === "nextPageFirst" || type === "pageEndToNextFirst") page = clamp(page, QURAN_MIN_PAGE, QURAN_MAX_PAGE - 1);
-    if (type === "prevPageFirst" || type === "pageStartToPrevLast") page = clamp(page, QURAN_MIN_PAGE + 1, QURAN_MAX_PAGE);
+    // Adjacent-page types are kept strictly inside [minP, maxP] by
+    // never landing on the range's own last/first page as the
+    // "question" page — so their answer (on the next/previous page)
+    // always stays within the selected range too.
+    let page;
+    if (type === "nextPageFirst" || type === "pageEndToNextFirst") {
+      page = randInt(minP, maxP - 1);
+    } else if (type === "prevPageFirst" || type === "pageStartToPrevLast") {
+      page = randInt(minP + 1, maxP);
+    } else {
+      page = randInt(minP, maxP);
+    }
 
     setStatus("جاري التحميل...");
     lockGenerate();
@@ -857,15 +927,16 @@ qTypeSelect.addEventListener("change", () => {
   const type = qTypeSelect.value;
   const label = getTypeLabel(type);
   cardHelp.textContent = `النوع: ${label} — ${getTypeDescription(type)}`;
+  refreshGenerationAvailability();
 });
 
-// Catch session-range conflicts and insufficient-juz-variety cases as
-// soon as the person changes the type or range — not just when they
-// click "سؤال جديد" and get surprised.
-[qTypeSelect, rangeSelect, customMinEl, customMaxEl].forEach((el) => {
-  el.addEventListener("change", refreshGenerationAvailability);
+// Guest range changes affect which question types are even valid —
+// recheck immediately, not just when they hit "سؤال جديد".
+[rangeSelect, customMinEl, customMaxEl].forEach((el) => {
+  el.addEventListener("change", () => {
+    refreshQuestionTypeAvailability();
+  });
 });
-refreshGenerationAvailability();
 
 // -------- settings sync (signed-in users only) --------
 let settingsSyncReady = false; // avoid feedback loop while applying remote settings
@@ -890,7 +961,7 @@ function applyRemoteSettings(settings) {
   if (settings.custom_max != null) customMaxEl.value = settings.custom_max;
   showHideCustomRange();
   settingsSyncReady = true;
-  refreshGenerationAvailability();
+  refreshQuestionTypeAvailability();
 }
 
 [qTypeSelect, timerSelect, rangeSelect, customMinEl, customMaxEl].forEach((el) => {
@@ -923,11 +994,14 @@ if (typeof onAuthChange === "function") {
       activeSessionId = active?.id ?? null;
       activeSessionRangeMin = active?.rangeMin ?? null;
       activeSessionRangeMax = active?.rangeMax ?? null;
+      showSessionRangeUI(activeSessionRangeMin, activeSessionRangeMax);
     } else {
       activeSessionId = null;
       activeSessionRangeMin = null;
       activeSessionRangeMax = null;
+      showGuestRangeUI();
     }
+    await refreshQuestionTypeAvailability();
   });
 } else {
   settingsSyncReady = true;

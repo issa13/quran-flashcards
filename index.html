@@ -60,7 +60,6 @@
             <option value="pageStartToPrevLast">من أول آية: خمن آخر آية بالصفحة السابقة</option>
             <option value="juz">خمن الجزء</option>
             <option value="ayahNumber">خمن رقم الآية بالسورة</option>
-            <option value="fillBlank">أكمل الآية (الكلمة الناقصة)</option>
           </select>
         </div>
 
@@ -79,8 +78,9 @@
         </div>
       </div>
 
-      <!-- Row 2: نطاق الصفحات -->
-      <div class="row" style="margin-top: 10px;">
+      <!-- Row 2: نطاق الصفحات (guests only — signed-in users' range is
+           fixed per-session, set when the session is created) -->
+      <div class="row" id="guestRangeRow" style="margin-top: 10px;">
         <div class="field">
           <label for="rangeSelect">نطاق الصفحات</label>
           <select id="rangeSelect">
@@ -106,6 +106,15 @@
         <div class="field">
           <label for="customMax">إلى صفحة</label>
           <input id="customMax" type="number" min="1" max="604" value="604">
+        </div>
+      </div>
+
+      <!-- Signed-in users: fixed session range (read-only) -->
+      <div class="row" id="sessionRangeRow" style="margin-top: 10px; display:none;">
+        <div class="field">
+          <label>نطاق صفحات الجلسة الحالية</label>
+          <div id="sessionRangeDisplay" class="session-range-display">—</div>
+          <div class="hint">النطاق ثابت لهذه الجلسة. أنشئ جلسة جديدة من «📊 إحصائياتي» لتغييره.</div>
         </div>
       </div>
     </div>
@@ -199,8 +208,7 @@
       </div>
 
       <div class="sessions-toolbar">
-        <input id="newSessionName" type="text" class="session-name-input" placeholder="اسم الجلسة الجديدة" maxlength="60">
-        <button id="newSessionBtn" class="btn small" disabled>+ إضافة جلسة</button>
+        <button id="openCreateSessionBtn" class="btn small">+ جلسة جديدة</button>
       </div>
 
       <div class="sessions-table-wrap">
@@ -229,6 +237,52 @@
         </label>
         <button id="deleteSessionBtn" class="btn small ghost danger">🗑 حذف هذه الجلسة</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Create session modal -->
+  <div id="createSessionModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">➕ جلسة جديدة</div>
+        <button class="modal-close" id="createSessionCloseBtn">✕</button>
+      </div>
+
+      <div class="field" style="margin-top:10px;">
+        <label for="newSessionName">اسم الجلسة</label>
+        <input id="newSessionName" type="text" placeholder="مثال: مراجعة سورة البقرة" maxlength="60">
+      </div>
+
+      <div class="field" style="margin-top:10px;">
+        <label for="newSessionRangeSelect">نطاق الصفحات</label>
+        <select id="newSessionRangeSelect">
+          <option value="all">كل المصحف (1–604)</option>
+          <option value="first100">أول 100 صفحة (1–100)</option>
+          <option value="juz1">الجزء الأول (1–21)</option>
+          <option value="juz30">الجزء الثلاثون (582–604)</option>
+          <option value="baqarah">سورة البقرة</option>
+          <option value="imran">سورة آل عمران</option>
+          <option value="zahrawain">الزهراوين (البقرة + آل عمران)</option>
+          <option value="custom">نطاق مخصص</option>
+        </select>
+      </div>
+
+      <div id="newSessionCustomRangeRow" class="row" style="margin-top: 10px; display:none;">
+        <div class="field">
+          <label for="newSessionCustomMin">من صفحة</label>
+          <input id="newSessionCustomMin" type="number" min="1" max="604" value="1">
+        </div>
+        <div class="field">
+          <label for="newSessionCustomMax">إلى صفحة</label>
+          <input id="newSessionCustomMax" type="number" min="1" max="604" value="604">
+        </div>
+      </div>
+
+      <div class="modal-hint" style="margin-top:10px; text-align:start;">
+        لا يمكن تغيير اسم أو نطاق الجلسة بعد إنشائها — لتغيير النطاق لاحقًا، أنشئ جلسة جديدة.
+      </div>
+
+      <button id="createSessionSubmitBtn" class="btn primary" style="margin-top:14px; width:100%;" disabled>إنشاء الجلسة</button>
     </div>
   </div>
 
