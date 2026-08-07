@@ -250,6 +250,25 @@ async function fetchSessionAttempts(sessionId) {
   return data;
 }
 
+// Distinct pages where this session has at least one wrong answer —
+// used by app.js's mistake-review mode to restrict which pages new
+// questions are drawn from.
+async function fetchSessionWrongPages(sessionId) {
+  if (!sb || !currentUser || !sessionId) return [];
+  const { data, error } = await sb
+    .from("attempts")
+    .select("page")
+    .eq("session_id", sessionId)
+    .eq("is_correct", false)
+    .not("page", "is", null)
+    .limit(2000);
+  if (error) {
+    console.error("fetchSessionWrongPages error", error);
+    return [];
+  }
+  return Array.from(new Set((data || []).map((r) => r.page).filter((p) => p != null)));
+}
+
 // -------- profile --------
 async function fetchProfile() {
   if (!sb || !currentUser) return null;

@@ -62,6 +62,10 @@ const customMaxEl = document.getElementById("customMax");
 const sessionRangeRow = document.getElementById("sessionRangeRow");
 const sessionRangeDisplay = document.getElementById("sessionRangeDisplay");
 
+const mistakeReviewRow = document.getElementById("mistakeReviewRow");
+const mistakeReviewToggle = document.getElementById("mistakeReviewToggle");
+const mistakeReviewHint = document.getElementById("mistakeReviewHint");
+
 const scoreBox = document.getElementById("scoreBox");
 const cardHelp = document.getElementById("cardHelp");
 const playAudioBtn = document.getElementById("playAudioBtn");
@@ -148,6 +152,33 @@ function syncActiveSessionId(id, rangeMin, rangeMax) {
   activeSessionId = id;
   activeSessionRangeMin = rangeMin ?? null;
   activeSessionRangeMax = rangeMax ?? null;
+  resetMistakeReview();
+}
+
+// Mistake-review mode (signed-in users only) — when active, new
+// questions draw their page only from mistakeReviewPages (the pages
+// with a wrong answer in the CURRENT session) instead of the full
+// session range. Distractors still use the full range (see
+// buildChoices()), so answer quality doesn't degrade. Resets whenever
+// the active session changes (see syncActiveSessionId() above).
+let mistakeReviewActive = false;
+let mistakeReviewPages = [];
+
+function resetMistakeReview() {
+  mistakeReviewActive = false;
+  mistakeReviewPages = [];
+  mistakeReviewToggle.checked = false;
+  mistakeReviewRow.classList.remove("active");
+  mistakeReviewHint.textContent = "سيتم اختيار الأسئلة من الصفحات التي أخطأت فيها فقط، وتُزال الصفحة تلقائيًا بعد إتقانها.";
+}
+
+// Which of the given pages are actually usable for this question
+// type — the adjacent-page types need room on the correct side (same
+// boundary safety as generateCard()'s normal page selection).
+function filterPagesForType(pages, type, minP, maxP) {
+  if (type === "nextPageFirst" || type === "pageEndToNextFirst") return pages.filter((p) => p < maxP);
+  if (type === "prevPageFirst" || type === "pageStartToPrevLast") return pages.filter((p) => p > minP);
+  return pages;
 }
 
 // Timer state
@@ -284,12 +315,15 @@ function showGuestRangeUI() {
   guestRangeRow.style.display = "flex";
   showHideCustomRange();
   sessionRangeRow.style.display = "none";
+  mistakeReviewRow.style.display = "none";
+  resetMistakeReview();
 }
 
 function showSessionRangeUI(minP, maxP) {
   guestRangeRow.style.display = "none";
   customRangeRow.style.display = "none";
   sessionRangeRow.style.display = "flex";
+  mistakeReviewRow.style.display = "flex";
   setActiveRangeDisplay(minP, maxP);
 }
 
@@ -307,6 +341,13 @@ function rangeTooNarrowMessage(typeLabel, count, singularUnit, pluralUnit) {
 async function checkGenerationBlock(type, minP, maxP) {
   if (ADJACENT_TYPES.has(type) && maxP <= minP) {
     return "يلزم نطاق يشمل أكثر من صفحة واحدة لإنشاء هذا النوع من الأسئلة. وسّع نطاق الصفحات أو اختر نوع سؤال آخر.";
+  }
+
+  if (mistakeReviewActive) {
+    const pages = filterPagesForType(mistakeReviewPages, type, minP, maxP);
+    if (pages.length === 0) {
+      return "لا توجد صفحات أخطاء مناسبة لهذا النوع من الأسئلة ضمن وضع المراجعة. جرّب نوعًا آخر أو أوقف وضع المراجعة.";
+    }
   }
 
   if (type === "juz") {
@@ -867,6 +908,20 @@ function finishQuestion(isCorrect) {
 
   saveGuestScore();
 
+  // A mistake-review page that's now answered correctly drops out of
+  // the active review pool so it doesn't keep coming back up.
+  if (isCorrect && mistakeReviewActive && currentPage != null) {
+    mistakeReviewPages = mistakeReviewPages.filter((p) => p !== currentPage);
+    mistakeReviewHint.textContent = mistakeReviewPages.length
+      ? `عدد صفحات المراجعة: ${mistakeReviewPages.length}. ستُزال كل صفحة تلقائيًا فور إتقانها.`
+      : "أتقنت كل صفحات المراجعة في هذه الجلسة! 🎉";
+    if (!mistakeReviewPages.length) {
+      mistakeReviewActive = false;
+      mistakeReviewToggle.checked = false;
+      mistakeReviewRow.classList.remove("active");
+    }
+  }
+
   if (typeof recordAttempt === "function" && currentQuestionType) {
     recordAttempt({
       questionType: currentQuestionType,
@@ -909,9 +964,16 @@ async function generateCard() {
     // Adjacent-page types are kept strictly inside [minP, maxP] by
     // never landing on the range's own last/first page as the
     // "question" page — so their answer (on the next/previous page)
-    // always stays within the selected range too.
+    // always stays within the selected range too. In mistake-review
+    // mode, the page comes from mistakeReviewPages instead of the
+    // full range (checkGenerationBlock() already guaranteed a valid
+    // one exists for this type) — buildChoices() below still uses the
+    // full [minP, maxP] for distractors either way.
     let page;
-    if (type === "nextPageFirst" || type === "pageEndToNextFirst") {
+    if (mistakeReviewActive) {
+      const pages = filterPagesForType(mistakeReviewPages, type, minP, maxP);
+      page = pages[randInt(0, pages.length - 1)];
+    } else if (type === "nextPageFirst" || type === "pageEndToNextFirst") {
       page = randInt(minP, maxP - 1);
     } else if (type === "prevPageFirst" || type === "pageStartToPrevLast") {
       page = randInt(minP + 1, maxP);
@@ -1007,6 +1069,37 @@ qTypeSelect.addEventListener("change", () => {
   el.addEventListener("change", () => {
     refreshQuestionTypeAvailability();
   });
+});
+
+mistakeReviewToggle.addEventListener("change", async () => {
+  if (!mistakeReviewToggle.checked) {
+    mistakeReviewActive = false;
+    mistakeReviewHint.textContent = "سيتم اختيار الأسئلة من الصفحات التي أخطأت فيها فقط، وتُزال الصفحة تلقائيًا بعد إتقانها.";
+    mistakeReviewRow.classList.remove("active");
+    await refreshGenerationAvailability();
+    return;
+  }
+
+  if (!activeSessionId) {
+    mistakeReviewToggle.checked = false;
+    return;
+  }
+
+  mistakeReviewToggle.disabled = true;
+  const pages = (typeof fetchSessionWrongPages === "function") ? await fetchSessionWrongPages(activeSessionId) : [];
+  mistakeReviewToggle.disabled = false;
+
+  if (!pages.length) {
+    mistakeReviewToggle.checked = false;
+    alert("لا توجد إجابات خاطئة في هذه الجلسة بعد.");
+    return;
+  }
+
+  mistakeReviewActive = true;
+  mistakeReviewPages = pages;
+  mistakeReviewHint.textContent = `عدد صفحات المراجعة: ${pages.length}. ستُزال كل صفحة تلقائيًا فور إتقانها.`;
+  mistakeReviewRow.classList.add("active");
+  await refreshGenerationAvailability();
 });
 
 // -------- settings sync (signed-in users only) --------

@@ -729,6 +729,14 @@ select:focus, input:focus {
   color: var(--accent-text);
 }
 
+.mistake-review-row.active {
+  background: var(--danger-bg);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  transition: background-color 0.2s var(--ease);
+}
+.mistake-review-row.active .toggle-row { color: var(--danger); }
+
 .sessions-table-wrap {
   max-height: 240px;
   overflow-y: auto;
