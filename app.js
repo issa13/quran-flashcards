@@ -64,6 +64,7 @@ const sessionRangeDisplay = document.getElementById("sessionRangeDisplay");
 
 const scoreBox = document.getElementById("scoreBox");
 const cardHelp = document.getElementById("cardHelp");
+const playAudioBtn = document.getElementById("playAudioBtn");
 
 // -------- MCQ config --------
 const MCQ_CHOICE_COUNT = 6;
@@ -126,6 +127,8 @@ let currentQuestionType = null;
 let currentPage = null;
 let currentRangeMin = null;
 let currentRangeMax = null;
+let currentQAyahNumber = null;
+let currentAudioEl = null;
 
 // Active session (signed-in users only) — always the user's last
 // (most recently created) session, and the ONLY session new attempts
@@ -504,6 +507,67 @@ function getSurahName(ayah) {
   return clean(s.name) || "غير معروف";
 }
 
+// -------- recitation audio --------
+// Looked up on demand (only when the person taps "استماع"), via the
+// ayah's global number (1–6236) — asking the API for the URL rather
+// than guessing a CDN path keeps this correct without hardcoding
+// anything about Quranic content.
+async function fetchAyahAudioUrl(globalAyahNumber) {
+  const res = await fetch(`${API_BASE}ayah/${globalAyahNumber}/ar.alafasy`, { cache: "no-store" });
+  if (!res.ok) throw new Error("HTTP error");
+  const json = await res.json();
+  return json?.data?.audio || json?.data?.audioSecondary?.[0] || null;
+}
+
+function stopAudio() {
+  if (currentAudioEl) {
+    currentAudioEl.pause();
+    currentAudioEl.currentTime = 0;
+    currentAudioEl = null;
+  }
+  playAudioBtn.textContent = "🔊 استماع";
+  playAudioBtn.classList.remove("playing");
+}
+
+function hideAudioButton() {
+  stopAudio();
+  playAudioBtn.style.display = "none";
+}
+
+function showAudioButtonFor(qAyahNumber) {
+  stopAudio();
+  if (qAyahNumber) {
+    playAudioBtn.style.display = "inline-flex";
+  } else {
+    playAudioBtn.style.display = "none";
+  }
+}
+
+playAudioBtn.addEventListener("click", async () => {
+  if (currentAudioEl && !currentAudioEl.paused) {
+    stopAudio();
+    return;
+  }
+  if (!currentQAyahNumber) return;
+
+  playAudioBtn.disabled = true;
+  playAudioBtn.textContent = "⏳ جارٍ التحميل...";
+  try {
+    const url = await fetchAyahAudioUrl(currentQAyahNumber);
+    if (!url) throw new Error("no audio url");
+    currentAudioEl = new Audio(url);
+    currentAudioEl.addEventListener("ended", stopAudio);
+    await currentAudioEl.play();
+    playAudioBtn.textContent = "⏸️ إيقاف";
+    playAudioBtn.classList.add("playing");
+  } catch (e) {
+    stopAudio();
+    setStatus("تعذّر تشغيل الصوت. حاول مرة أخرى.");
+  } finally {
+    playAudioBtn.disabled = false;
+  }
+});
+
 // Shrink text for long ayahs so they fit the card without needing to scroll
 function setCardText(el, text) {
   el.textContent = text;
@@ -563,12 +627,16 @@ function getTypeLabel(type) {
 }
 
 // -------- QA builders --------
-// Every builder returns { q, a, kind } (or null on failure). `kind`
-// tells buildChoices() which distractor strategy to use:
+// Every builder returns { q, a, kind, qAyahNumber } (or null on
+// failure). `kind` tells buildChoices() which distractor strategy to
+// use:
 //   "text"   → other ayah texts (first/last/previous/adjacent types)
 //   "surah"  → other surah names (from surahsInRange)
 //   "pageNumber" / "juz" → other values from the same range
 //   "ayahCount" / "ayahNumber" → nearby numbers
+// `qAyahNumber` is the GLOBAL ayah number (1–6236) of whichever ayah
+// the question text (`q`) came from — used to fetch its recitation
+// audio on demand (see fetchAyahAudioUrl()).
 function pickQAFromPage(ayahs, type, page) {
   if (!ayahs || ayahs.length < 2) return null;
 
@@ -577,45 +645,45 @@ function pickQAFromPage(ayahs, type, page) {
 
   if (type === "first") {
     const candidate = ayahs[randInt(1, ayahs.length - 1)];
-    return { q: clean(candidate.text), a: clean(first.text), kind: "text" };
+    return { q: clean(candidate.text), a: clean(first.text), kind: "text", qAyahNumber: candidate.number };
   }
 
   if (type === "last") {
     const candidate = ayahs[randInt(0, ayahs.length - 2)];
-    return { q: clean(candidate.text), a: clean(last.text), kind: "text" };
+    return { q: clean(candidate.text), a: clean(last.text), kind: "text", qAyahNumber: candidate.number };
   }
 
   if (type === "previous") {
     const idx = randInt(1, ayahs.length - 1);
-    return { q: clean(ayahs[idx].text), a: clean(ayahs[idx - 1].text), kind: "text" };
+    return { q: clean(ayahs[idx].text), a: clean(ayahs[idx - 1].text), kind: "text", qAyahNumber: ayahs[idx].number };
   }
 
   if (type === "surah") {
     const candidate = ayahs[randInt(0, ayahs.length - 1)];
-    return { q: clean(candidate.text), a: getSurahName(candidate), kind: "surah" };
+    return { q: clean(candidate.text), a: getSurahName(candidate), kind: "surah", qAyahNumber: candidate.number };
   }
 
   if (type === "pageNumber") {
     const candidate = ayahs[randInt(0, ayahs.length - 1)];
-    return { q: clean(candidate.text), a: String(page), kind: "pageNumber" };
+    return { q: clean(candidate.text), a: String(page), kind: "pageNumber", qAyahNumber: candidate.number };
   }
 
   if (type === "ayahCount") {
-    return { q: clean(first.text), a: String(ayahs.length), kind: "ayahCount" };
+    return { q: clean(first.text), a: String(ayahs.length), kind: "ayahCount", qAyahNumber: first.number };
   }
 
   if (type === "juz") {
     const candidate = ayahs[randInt(0, ayahs.length - 1)];
     const juz = candidate.juz;
     if (juz == null) return null;
-    return { q: clean(candidate.text), a: String(juz), kind: "juz" };
+    return { q: clean(candidate.text), a: String(juz), kind: "juz", qAyahNumber: candidate.number };
   }
 
   if (type === "ayahNumber") {
     const candidate = ayahs[randInt(0, ayahs.length - 1)];
     const num = candidate.numberInSurah;
     if (num == null) return null;
-    return { q: clean(candidate.text), a: String(num), kind: "ayahNumber" };
+    return { q: clean(candidate.text), a: String(num), kind: "ayahNumber", qAyahNumber: candidate.number };
   }
 
   return null;
@@ -631,31 +699,31 @@ async function pickAdjacentPageQA(type, page) {
   if (!currentAyahs || currentAyahs.length < 1) return null;
 
   if (type === "nextPageFirst") {
-    const q = clean(currentAyahs[0].text);
+    const qAyah = currentAyahs[0];
     const nextAyahs = await fetchPageAyahs(page + 1);
     if (!nextAyahs || nextAyahs.length < 1) return null;
-    return { q, a: clean(nextAyahs[0].text), kind: "text" };
+    return { q: clean(qAyah.text), a: clean(nextAyahs[0].text), kind: "text", qAyahNumber: qAyah.number };
   }
 
   if (type === "prevPageFirst") {
-    const q = clean(currentAyahs[0].text);
+    const qAyah = currentAyahs[0];
     const prevAyahs = await fetchPageAyahs(page - 1);
     if (!prevAyahs || prevAyahs.length < 1) return null;
-    return { q, a: clean(prevAyahs[0].text), kind: "text" };
+    return { q: clean(qAyah.text), a: clean(prevAyahs[0].text), kind: "text", qAyahNumber: qAyah.number };
   }
 
   if (type === "pageEndToNextFirst") {
-    const q = clean(currentAyahs[currentAyahs.length - 1].text);
+    const qAyah = currentAyahs[currentAyahs.length - 1];
     const nextAyahs = await fetchPageAyahs(page + 1);
     if (!nextAyahs || nextAyahs.length < 1) return null;
-    return { q, a: clean(nextAyahs[0].text), kind: "text" };
+    return { q: clean(qAyah.text), a: clean(nextAyahs[0].text), kind: "text", qAyahNumber: qAyah.number };
   }
 
   if (type === "pageStartToPrevLast") {
-    const q = clean(currentAyahs[0].text);
+    const qAyah = currentAyahs[0];
     const prevAyahs = await fetchPageAyahs(page - 1);
     if (!prevAyahs || prevAyahs.length < 1) return null;
-    return { q, a: clean(prevAyahs[prevAyahs.length - 1].text), kind: "text" };
+    return { q: clean(qAyah.text), a: clean(prevAyahs[prevAyahs.length - 1].text), kind: "text", qAyahNumber: qAyah.number };
   }
 
   return null;
@@ -856,6 +924,7 @@ async function generateCard() {
 
     // reset
     stopTimer();
+    hideAudioButton();
     mcqChoicesEl.innerHTML = "";
     answeredThisCard = false;
     hasActiveCard = false;
@@ -895,6 +964,8 @@ async function generateCard() {
     currentPage = page;
     currentRangeMin = minP;
     currentRangeMax = maxP;
+    currentQAyahNumber = qa.qAyahNumber || null;
+    showAudioButtonFor(currentQAyahNumber);
 
     hasActiveCard = true;
     answeredThisCard = false;

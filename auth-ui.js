@@ -33,6 +33,7 @@ const statsBody = document.getElementById("statsBody");
 const sessionChips = document.getElementById("sessionChips");
 const sessionActions = document.getElementById("sessionActions");
 const sessionPublicToggle = document.getElementById("sessionPublicToggle");
+const renameSessionBtn = document.getElementById("renameSessionBtn");
 const deleteSessionBtn = document.getElementById("deleteSessionBtn");
 
 const createSessionModal = document.getElementById("createSessionModal");
@@ -56,6 +57,33 @@ const achievementsCloseBtn = document.getElementById("achievementsCloseBtn");
 const achievementsBody = document.getElementById("achievementsBody");
 
 const logoutBtn = document.getElementById("logoutBtn");
+
+// -------- dark mode --------
+// The inline script in index.html's <head> already applies the
+// initial theme (from localStorage or system preference) before
+// first paint — this just wires the toggle button to flip it.
+const themeToggleBtn = document.getElementById("themeToggleBtn");
+
+function currentTheme() {
+  return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+}
+
+function setThemeButtonLabel() {
+  themeToggleBtn.textContent = currentTheme() === "dark" ? "☀️ فاتح" : "🌙 داكن";
+}
+
+themeToggleBtn.addEventListener("click", () => {
+  const next = currentTheme() === "dark" ? "light" : "dark";
+  if (next === "dark") {
+    document.documentElement.setAttribute("data-theme", "dark");
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+  }
+  try { localStorage.setItem("qf_theme", next); } catch (e) { /* ignore */ }
+  setThemeButtonLabel();
+});
+
+setThemeButtonLabel();
 
 let authMode = "login"; // or "signup"
 let mySessions = [];          // cached list from session_summary
@@ -331,6 +359,30 @@ sessionPublicToggle.addEventListener("change", async () => {
   renderSessionChips(); // show/hide the 🏆 badge in the table immediately
 });
 
+renameSessionBtn.addEventListener("click", async () => {
+  if (!selectedSessionId) return;
+  const session = mySessions.find((s) => s.session_id === selectedSessionId);
+  const currentName = session ? session.title : "";
+
+  const newName = prompt("اسم الجلسة الجديد:", currentName);
+  if (newName === null) return; // cancelled
+  const trimmed = newName.trim();
+  if (!trimmed || trimmed === currentName) return;
+
+  renameSessionBtn.disabled = true;
+  const ok = await renameSession(selectedSessionId, trimmed);
+  renameSessionBtn.disabled = false;
+
+  if (!ok) {
+    alert("تعذّر إعادة تسمية الجلسة. حاول مرة أخرى.");
+    return;
+  }
+
+  if (session) session.title = trimmed;
+  renderSessionChips();
+  await renderSelectedSession();
+});
+
 deleteSessionBtn.addEventListener("click", async () => {
   if (!selectedSessionId) return;
 
@@ -535,9 +587,12 @@ function renderLeaderboardHtml(rows) {
     .map((r, i) => {
       const label = pageRangeLabel(r);
       const rangeLabel = label ? ` — ${label}` : "";
+      const levelLabel = (typeof levelFromXp === "function" && r.owner_xp != null)
+        ? ` <span class="lb-level">(المستوى ${levelFromXp(r.owner_xp)})</span>`
+        : "";
       return `
       <div class="stat-row leaderboard-row">
-        <div class="stat-row-label">${i + 1}. ${escapeHtml(r.display_name)} — ${escapeHtml(r.title)}</div>
+        <div class="stat-row-label">${i + 1}. ${escapeHtml(r.display_name)}${levelLabel} — ${escapeHtml(r.title)}</div>
         <div class="stat-row-value">${r.total_correct}/${r.total_answers} (${r.accuracy_pct}%)${rangeLabel}</div>
       </div>`;
     })

@@ -11,6 +11,7 @@
   --muted: #746a58;
   --paper: #f4efe1;
   --card: #fffdf7;
+  --card-alt: #fbf5e6;
 
   /* brand */
   --emerald: #0e6b4f;
@@ -18,6 +19,12 @@
   --emerald-light: #12805f;
   --gold: #b8862e;
   --gold-light: #d9ad55;
+
+  /* Headings/labels drawn in "emerald-dark" need their own variable —
+     in dark mode that color has to become much lighter to stay
+     readable against a dark card, which would ruin --emerald-dark's
+     other job as the dark end of button gradients/borders. */
+  --accent-text: #0a4f3a;
 
   /* feedback */
   --success: #1f8a5f;
@@ -29,10 +36,60 @@
   --radius-md: 14px;
   --radius-sm: 10px;
 
-  --shadow-card: 0 1px 2px rgba(28, 35, 31, 0.04), 0 18px 40px -12px rgba(14, 107, 79, 0.22);
+  --shadow-card: 0 1px 2px rgba(var(--ink-rgb), 0.04), 0 18px 40px -12px rgba(var(--emerald-rgb), 0.22);
   --shadow-pop: 0 24px 60px -16px rgba(14, 35, 27, 0.35);
 
+  /* RGB triplets (no #, no rgba()) so borders/tints below can vary
+     their own alpha per-use while still flipping with the theme —
+     see [data-theme="dark"] for the dark-mode values. */
+  --ink-rgb: 28, 35, 31;
+  --gold-rgb: 184, 134, 46;
+  --emerald-rgb: 14, 107, 79;
+  --success-rgb: 31, 138, 95;
+  --danger-rgb: 179, 58, 46;
+
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* -------- Dark mode -------- */
+/* Toggled via the 🌙/☀️ button (auth-ui.js) which sets/removes this
+   attribute on <html>; index.html's inline head script applies the
+   saved/system preference before first paint to avoid a flash. Most
+   of the app already reads color through these variables, so this
+   block alone covers the majority of the UI — a handful of literal
+   #fff surface backgrounds elsewhere were switched to var(--card)/
+   var(--card-alt) so they pick this up too. */
+[data-theme="dark"] {
+  --ink: #eae6da;
+  --muted: #a89f8a;
+  --paper: #14180f;
+  --card: #1f261d;
+  --card-alt: #262e21;
+
+  --emerald: #1ea87c;
+  --emerald-dark: #12805f;
+  --emerald-light: #29c493;
+  --gold: #d9ad55;
+  --gold-light: #ecc47d;
+  --accent-text: #6fe0b8;
+
+  --success: #33b287;
+  --success-bg: #16301f;
+  --danger: #e2695a;
+  --danger-bg: #3a1e1a;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 18px 40px -12px rgba(0, 0, 0, 0.55);
+  --shadow-pop: 0 24px 60px -16px rgba(0, 0, 0, 0.65);
+
+  --ink-rgb: 234, 230, 218;
+  --gold-rgb: 217, 173, 85;
+  --emerald-rgb: 30, 168, 124;
+  --success-rgb: 51, 178, 135;
+  --danger-rgb: 226, 105, 90;
+}
+
+body, .btn, .mcq-choice, select, input, .modal, .panel {
+  transition: background-color 0.2s var(--ease), color 0.2s var(--ease), border-color 0.2s var(--ease);
 }
 
 * { box-sizing: border-box; }
@@ -42,8 +99,8 @@ body {
   font-family: 'Tajawal', system-ui, -apple-system, "Segoe UI", Tahoma, Arial, sans-serif;
   color: var(--ink);
   background:
-    radial-gradient(circle at 15% 8%, rgba(184, 134, 46, 0.10), transparent 40%),
-    radial-gradient(circle at 85% 92%, rgba(14, 107, 79, 0.12), transparent 45%),
+    radial-gradient(circle at 15% 8%, rgba(var(--gold-rgb), 0.10), transparent 40%),
+    radial-gradient(circle at 85% 92%, rgba(var(--emerald-rgb), 0.12), transparent 45%),
     var(--paper);
   background-attachment: fixed;
   min-height: 100vh;
@@ -73,6 +130,17 @@ body::before {
   flex-direction: column;
   align-items: center;
   gap: 14px;
+}
+
+/* -------- Theme toggle -------- */
+.theme-row {
+  width: min(94vw, var(--maxw));
+  display: flex;
+  justify-content: flex-start;
+}
+
+.theme-toggle {
+  font-size: 11px;
 }
 
 /* -------- Auth bar -------- */
@@ -107,7 +175,7 @@ body::before {
 .user-name {
   font-size: 13px;
   font-weight: 700;
-  color: var(--emerald-dark);
+  color: var(--accent-text);
 }
 
 .user-buttons {
@@ -132,7 +200,7 @@ body::before {
   padding: 11px 16px;
   border-radius: 999px;
   border: 1.5px solid transparent;
-  background: #fff;
+  background: var(--card);
   cursor: pointer;
   font-weight: 700;
   font-size: 14px;
@@ -147,21 +215,21 @@ body::before {
   background: linear-gradient(135deg, var(--emerald-light), var(--emerald-dark));
   border-color: var(--emerald-dark);
   color: #fff;
-  box-shadow: 0 10px 24px -10px rgba(14, 107, 79, 0.55);
+  box-shadow: 0 10px 24px -10px rgba(var(--emerald-rgb), 0.55);
 }
-.btn.primary:hover:not(:disabled) { box-shadow: 0 14px 28px -10px rgba(14, 107, 79, 0.65); }
+.btn.primary:hover:not(:disabled) { box-shadow: 0 14px 28px -10px rgba(var(--emerald-rgb), 0.65); }
 
 .btn.good {
   background: linear-gradient(135deg, #22a06b, var(--success));
   border-color: var(--success);
   color: #fff;
-  box-shadow: 0 8px 18px -8px rgba(31, 138, 95, 0.55);
+  box-shadow: 0 8px 18px -8px rgba(var(--success-rgb), 0.55);
 }
 .btn.bad {
   background: linear-gradient(135deg, #c94c3d, var(--danger));
   border-color: var(--danger);
   color: #fff;
-  box-shadow: 0 8px 18px -8px rgba(179, 58, 46, 0.5);
+  box-shadow: 0 8px 18px -8px rgba(var(--danger-rgb), 0.5);
 }
 
 .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
@@ -173,13 +241,13 @@ body::before {
   background: var(--emerald);
   border-color: var(--emerald-dark);
   color: #fff;
-  box-shadow: 0 6px 14px -8px rgba(14, 107, 79, 0.6);
+  box-shadow: 0 6px 14px -8px rgba(var(--emerald-rgb), 0.6);
 }
 
 .btn.small.ghost {
-  background: #fff;
-  color: var(--emerald-dark);
-  border: 1.5px solid rgba(14, 107, 79, 0.28);
+  background: var(--card);
+  color: var(--accent-text);
+  border: 1.5px solid rgba(var(--emerald-rgb), 0.28);
   box-shadow: none;
 }
 .btn.small.ghost:hover { background: var(--success-bg); }
@@ -191,7 +259,7 @@ body::before {
   width: min(94vw, var(--maxw));
   background: var(--card);
   border-radius: var(--radius-lg);
-  border: 1px solid rgba(184, 134, 46, 0.22);
+  border: 1px solid rgba(var(--gold-rgb), 0.22);
   border-top: 3px solid var(--gold);
   box-shadow: var(--shadow-card);
   padding: 18px;
@@ -211,7 +279,7 @@ body::before {
   font-family: 'Aref Ruqaa', serif;
   font-weight: 700;
   font-size: 22px;
-  color: var(--emerald-dark);
+  color: var(--accent-text);
   letter-spacing: 0.2px;
 }
 
@@ -240,9 +308,9 @@ body::before {
   font-size: 14px;
   padding: 9px 14px;
   border-radius: 999px;
-  background: linear-gradient(135deg, var(--success-bg), #fff);
-  border: 1.5px solid rgba(31, 138, 95, 0.35);
-  color: var(--emerald-dark);
+  background: linear-gradient(135deg, var(--success-bg), var(--card));
+  border: 1.5px solid rgba(var(--success-rgb), 0.35);
+  color: var(--accent-text);
   white-space: nowrap;
   transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease);
 }
@@ -252,7 +320,7 @@ body::before {
 }
 @keyframes scorePulse {
   0% { transform: scale(1); }
-  40% { transform: scale(1.12); box-shadow: 0 0 0 6px rgba(31, 138, 95, 0.12); }
+  40% { transform: scale(1.12); box-shadow: 0 0 0 6px rgba(var(--success-rgb), 0.12); }
   100% { transform: scale(1); }
 }
 
@@ -281,8 +349,8 @@ label {
 select, input[type="number"], input[type="email"], input[type="password"], input[type="text"] {
   padding: 11px 12px;
   border-radius: var(--radius-sm);
-  border: 1.5px solid rgba(28, 35, 31, 0.14);
-  background: #fff;
+  border: 1.5px solid rgba(var(--ink-rgb), 0.14);
+  background: var(--card);
   font-size: 14px;
   font-family: inherit;
   color: var(--ink);
@@ -292,7 +360,7 @@ select, input[type="number"], input[type="email"], input[type="password"], input
 
 select:focus, input:focus {
   border-color: var(--emerald);
-  box-shadow: 0 0 0 3px rgba(14, 107, 79, 0.15);
+  box-shadow: 0 0 0 3px rgba(var(--emerald-rgb), 0.15);
 }
 
 .hint {
@@ -327,16 +395,16 @@ select:focus, input:focus {
   color: var(--muted);
   transition: background 0.15s var(--ease);
 }
-.password-toggle-btn:hover { background: rgba(28, 35, 31, 0.06); }
+.password-toggle-btn:hover { background: rgba(var(--ink-rgb), 0.06); }
 
 /* -------- Timer bar -------- */
 .progress-wrap {
   width: min(94vw, var(--maxw));
   height: 10px;
   border-radius: 999px;
-  background: rgba(28, 35, 31, 0.08);
+  background: rgba(var(--ink-rgb), 0.08);
   overflow: hidden;
-  border: 1px solid rgba(28, 35, 31, 0.06);
+  border: 1px solid rgba(var(--ink-rgb), 0.06);
 }
 
 .progress-bar {
@@ -365,8 +433,8 @@ select:focus, input:focus {
   position: relative;
   width: 100%;
   border-radius: var(--radius-lg);
-  background: linear-gradient(160deg, #fffdf7 0%, #fbf5e6 100%);
-  border: 1px solid rgba(184, 134, 46, 0.25);
+  background: linear-gradient(160deg, var(--card) 0%, var(--card-alt) 100%);
+  border: 1px solid rgba(var(--gold-rgb), 0.25);
   box-shadow: var(--shadow-pop);
   padding: 26px;
   text-align: center;
@@ -397,8 +465,8 @@ select:focus, input:focus {
   border-end-end-radius: 14px;
 }
 
-.mcq-card.flash-correct { box-shadow: var(--shadow-pop), 0 0 0 4px rgba(31, 138, 95, 0.45); }
-.mcq-card.flash-wrong { box-shadow: var(--shadow-pop), 0 0 0 4px rgba(179, 58, 46, 0.4); }
+.mcq-card.flash-correct { box-shadow: var(--shadow-pop), 0 0 0 4px rgba(var(--success-rgb), 0.45); }
+.mcq-card.flash-wrong { box-shadow: var(--shadow-pop), 0 0 0 4px rgba(var(--danger-rgb), 0.4); }
 
 .title {
   font-size: 12px;
@@ -433,6 +501,18 @@ select:focus, input:focus {
   color: var(--muted);
 }
 
+.audio-btn {
+  margin: 12px auto 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.audio-btn.playing {
+  background: var(--success-bg);
+  border-color: var(--success);
+  color: var(--accent-text);
+}
+
 .mcq-choices {
   margin-top: 16px;
   display: flex;
@@ -446,8 +526,8 @@ select:focus, input:focus {
   width: 100%;
   padding: 12px 14px;
   border-radius: var(--radius-sm);
-  border: 1.5px solid rgba(28, 35, 31, 0.14);
-  background: #fff;
+  border: 1.5px solid rgba(var(--ink-rgb), 0.14);
+  background: var(--card);
   color: var(--ink);
   font-family: inherit;
   font-weight: 700;
@@ -464,7 +544,7 @@ select:focus, input:focus {
 .mcq-choice.correct {
   background: var(--success-bg);
   border-color: var(--success);
-  color: var(--emerald-dark);
+  color: var(--accent-text);
 }
 .mcq-choice.wrong {
   background: var(--danger-bg);
@@ -485,12 +565,12 @@ select:focus, input:focus {
   padding: 7px 14px;
   font-size: 12px;
   border-radius: 999px;
-  background: #fff;
-  border: 1px solid rgba(184, 134, 46, 0.25);
+  background: var(--card);
+  border: 1px solid rgba(var(--gold-rgb), 0.25);
   color: var(--muted);
   text-align: center;
 }
-.footer-badge strong { color: var(--emerald-dark); }
+.footer-badge strong { color: var(--accent-text); }
 
 /* -------- Modals -------- */
 .modal-overlay {
@@ -514,7 +594,7 @@ select:focus, input:focus {
   overflow-x: hidden;
   background: var(--card);
   border-radius: var(--radius-lg);
-  border: 1px solid rgba(184, 134, 46, 0.25);
+  border: 1px solid rgba(var(--gold-rgb), 0.25);
   border-top: 3px solid var(--gold);
   box-shadow: var(--shadow-pop);
   padding: 20px;
@@ -539,7 +619,7 @@ select:focus, input:focus {
   font-family: 'Aref Ruqaa', serif;
   font-weight: 700;
   font-size: 18px;
-  color: var(--emerald-dark);
+  color: var(--accent-text);
   overflow-wrap: break-word;
 }
 
@@ -550,7 +630,7 @@ select:focus, input:focus {
 
 .modal-close {
   border: none;
-  background: rgba(28, 35, 31, 0.06);
+  background: rgba(var(--ink-rgb), 0.06);
   font-size: 14px;
   cursor: pointer;
   color: var(--muted);
@@ -558,7 +638,7 @@ select:focus, input:focus {
   border-radius: 999px;
   transition: background 0.15s var(--ease);
 }
-.modal-close:hover { background: rgba(28, 35, 31, 0.12); }
+.modal-close:hover { background: rgba(var(--ink-rgb), 0.12); }
 
 .modal-hint {
   margin-top: 14px;
@@ -571,7 +651,7 @@ select:focus, input:focus {
 .tabs {
   display: flex;
   gap: 6px;
-  background: rgba(28, 35, 31, 0.06);
+  background: rgba(var(--ink-rgb), 0.06);
   border-radius: 999px;
   padding: 4px;
 }
@@ -593,7 +673,7 @@ select:focus, input:focus {
 .tab.active {
   background: var(--emerald);
   color: #fff;
-  box-shadow: 0 6px 14px -8px rgba(14, 107, 79, 0.6);
+  box-shadow: 0 6px 14px -8px rgba(var(--emerald-rgb), 0.6);
 }
 
 .auth-error {
@@ -601,7 +681,7 @@ select:focus, input:focus {
   font-size: 12px;
   color: var(--danger);
   background: var(--danger-bg);
-  border: 1px solid rgba(179, 58, 46, 0.25);
+  border: 1px solid rgba(var(--danger-rgb), 0.25);
   border-radius: var(--radius-sm);
   padding: 9px 11px;
   line-height: 1.7;
@@ -642,23 +722,23 @@ select:focus, input:focus {
 .session-range-display {
   padding: 11px 12px;
   border-radius: var(--radius-sm);
-  border: 1.5px solid rgba(28, 35, 31, 0.14);
-  background: rgba(28, 35, 31, 0.03);
+  border: 1.5px solid rgba(var(--ink-rgb), 0.14);
+  background: rgba(var(--ink-rgb), 0.03);
   font-size: 14px;
   font-weight: 800;
-  color: var(--emerald-dark);
+  color: var(--accent-text);
 }
 
 .sessions-table-wrap {
   max-height: 240px;
   overflow-y: auto;
   overflow-x: auto;
-  border: 1px solid rgba(28, 35, 31, 0.1);
+  border: 1px solid rgba(var(--ink-rgb), 0.1);
   border-radius: var(--radius-sm);
   margin-bottom: 4px;
 }
 .sessions-table-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
-.sessions-table-wrap::-webkit-scrollbar-thumb { background: rgba(184, 134, 46, 0.4); border-radius: 999px; }
+.sessions-table-wrap::-webkit-scrollbar-thumb { background: rgba(var(--gold-rgb), 0.4); border-radius: 999px; }
 
 .sessions-table {
   width: 100%;
@@ -675,7 +755,7 @@ select:focus, input:focus {
   color: var(--muted);
   font-weight: 700;
   padding: 8px 8px;
-  border-bottom: 1px solid rgba(28, 35, 31, 0.14);
+  border-bottom: 1px solid rgba(var(--ink-rgb), 0.14);
   white-space: nowrap;
 }
 
@@ -683,12 +763,12 @@ select:focus, input:focus {
   cursor: pointer;
   transition: background 0.15s var(--ease);
 }
-.session-row:hover { background: rgba(14, 107, 79, 0.06); }
+.session-row:hover { background: rgba(var(--emerald-rgb), 0.06); }
 .session-row.active { background: var(--success-bg); }
 
 .session-row td {
   padding: 8px 8px;
-  border-bottom: 1px solid rgba(28, 35, 31, 0.06);
+  border-bottom: 1px solid rgba(var(--ink-rgb), 0.06);
   color: var(--ink);
   white-space: nowrap;
 }
@@ -713,17 +793,29 @@ select:focus, input:focus {
   gap: 10px;
   margin-top: 14px;
   padding-top: 14px;
-  border-top: 1px dashed rgba(184, 134, 46, 0.3);
+  border-top: 1px dashed rgba(var(--gold-rgb), 0.3);
+  flex-wrap: wrap;
+}
+
+.session-actions-buttons {
+  display: flex;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .btn.small.ghost.danger {
   color: var(--danger);
-  border-color: rgba(179, 58, 46, 0.3);
+  border-color: rgba(var(--danger-rgb), 0.3);
 }
 .btn.small.ghost.danger:hover { background: var(--danger-bg); }
 
 .leaderboard-row { padding: 6px 0; }
+
+.lb-level {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
 
 /* -------- Stats / leaderboard -------- */
 .stats-body { margin-top: 4px; }
@@ -736,7 +828,7 @@ select:focus, input:focus {
 .stat-summary {
   text-align: center;
   padding: 12px 0 18px;
-  border-bottom: 1px dashed rgba(184, 134, 46, 0.35);
+  border-bottom: 1px dashed rgba(var(--gold-rgb), 0.35);
   margin-bottom: 14px;
 }
 
@@ -774,7 +866,7 @@ select:focus, input:focus {
   flex: 1;
   height: 8px;
   border-radius: 999px;
-  background: rgba(28, 35, 31, 0.08);
+  background: rgba(var(--ink-rgb), 0.08);
   overflow: hidden;
 }
 
@@ -815,13 +907,13 @@ select:focus, input:focus {
 .level-summary {
   text-align: center;
   padding: 6px 0 18px;
-  border-bottom: 1px dashed rgba(184, 134, 46, 0.35);
+  border-bottom: 1px dashed rgba(var(--gold-rgb), 0.35);
   margin-bottom: 14px;
 }
 .level-summary-badge {
   font-size: 20px;
   font-weight: 900;
-  color: var(--emerald-dark);
+  color: var(--accent-text);
 }
 .level-summary-xp {
   margin-top: 2px;
@@ -833,7 +925,7 @@ select:focus, input:focus {
   margin-top: 10px;
   height: 8px;
   border-radius: 999px;
-  background: rgba(28, 35, 31, 0.08);
+  background: rgba(var(--ink-rgb), 0.08);
   overflow: hidden;
 }
 .level-progress-fill {
@@ -854,14 +946,14 @@ select:focus, input:focus {
 }
 .badge-item {
   border-radius: var(--radius-sm);
-  border: 1.5px solid rgba(28, 35, 31, 0.1);
+  border: 1.5px solid rgba(var(--ink-rgb), 0.1);
   padding: 12px 10px;
   text-align: center;
-  background: #fff;
+  background: var(--card);
 }
 .badge-item.earned {
-  border-color: rgba(184, 134, 46, 0.4);
-  background: linear-gradient(160deg, #fffdf7, #fbf1dc);
+  border-color: rgba(var(--gold-rgb), 0.4);
+  background: linear-gradient(160deg, var(--card), var(--card-alt));
 }
 .badge-item.locked { opacity: 0.45; filter: grayscale(0.6); }
 .badge-icon { font-size: 26px; }

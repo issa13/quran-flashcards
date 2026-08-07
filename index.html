@@ -4,6 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>بطاقات مراجعة القرآن</title>
+  <script>
+    // Applied before first paint so switching themes never flashes
+    // the wrong one. auth-ui.js's toggle button reads/writes the same
+    // data-theme attribute and qf_theme localStorage key.
+    (function () {
+      try {
+        var stored = localStorage.getItem("qf_theme");
+        var dark = stored === "dark" || (stored !== "light" &&
+          window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.setAttribute("data-theme", "dark");
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@400;700&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
@@ -14,6 +27,11 @@
   <div class="wrap">
 
     <!-- Auth bar -->
+    <!-- Theme toggle -->
+    <div class="theme-row">
+      <button id="themeToggleBtn" type="button" class="btn small ghost theme-toggle" aria-label="تبديل الوضع الليلي">🌙 داكن</button>
+    </div>
+
     <div class="authbar">
       <div id="guestActions" class="authbar-side">
         <button id="loginOpenBtn" class="btn small">تسجيل الدخول</button>
@@ -130,6 +148,7 @@
         <div id="cardModeTitle" class="title">السؤال</div>
         <div id="cardHelp" class="helper">اختر نوع السؤال ونطاق الصفحات ثم اضغط "سؤال جديد".</div>
         <div id="qText" class="text">—</div>
+        <button id="playAudioBtn" type="button" class="btn small ghost audio-btn" style="display:none;">🔊 استماع</button>
         <div class="sub">اضغط على أحد الخيارات أدناه للإجابة</div>
         <div id="mcqChoices" class="mcq-choices"></div>
       </div>
@@ -235,7 +254,10 @@
           <input type="checkbox" id="sessionPublicToggle">
           أضف هذه الجلسة إلى لوحة الصدارة العامة
         </label>
-        <button id="deleteSessionBtn" class="btn small ghost danger">🗑 حذف هذه الجلسة</button>
+        <div class="session-actions-buttons">
+          <button id="renameSessionBtn" class="btn small ghost">✏️ إعادة تسمية</button>
+          <button id="deleteSessionBtn" class="btn small ghost danger">🗑 حذف هذه الجلسة</button>
+        </div>
       </div>
     </div>
   </div>

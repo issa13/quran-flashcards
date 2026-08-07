@@ -191,12 +191,16 @@ async function setSessionPublic(sessionId, isPublic) {
 }
 
 async function renameSession(sessionId, title) {
-  if (!sb || !currentUser) return;
+  if (!sb || !currentUser) return false;
   const { error } = await sb
     .from("sessions")
     .update({ title })
     .eq("id", sessionId);
-  if (error) console.error("renameSession error", error);
+  if (error) {
+    console.error("renameSession error", error);
+    return false;
+  }
+  return true;
 }
 
 // -------- attempts sync --------

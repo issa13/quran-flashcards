@@ -132,6 +132,9 @@ create table if not exists public.user_stats (
   updated_at timestamptz not null default now()
 );
 
+alter table public.user_stats
+  add column if not exists last_attempt_at timestamptz;
+
 alter table public.user_stats enable row level security;
 
 -- Public read (no sensitive data — just counts), same spirit as
@@ -194,6 +197,13 @@ create policy "Users view their own achievements"
 --    write is still pinned to auth.uid() — a user can only ever
 --    record or widen their own rows.
 --
+--    Rate limited to one recorded attempt per 350ms per user (well
+--    under any realistic "read the question, tap a choice" pace) —
+--    calls faster than that are silently no-ops (current xp is still
+--    returned so the client doesn't error), which quietly caps
+--    scripted XP/leaderboard inflation without ever disrupting a
+--    genuine fast answer.
+--
 --    Dropped and recreated (not just "or replace") because its
 --    return type changed (void → text[] → jsonb across revisions).
 drop function if exists public.record_attempt(bigint, text, int, boolean, int, int);
@@ -214,6 +224,7 @@ as $$
 declare
   v_uid uuid := auth.uid();
   v_xp int;
+  v_last_attempt_at timestamptz;
   v_total_correct int;
   v_best_streak int;
   v_session_total int;
@@ -222,6 +233,13 @@ declare
   v_code text;
   v_earned text[] := '{}';
 begin
+  select xp, last_attempt_at into v_xp, v_last_attempt_at
+  from public.user_stats where user_id = v_uid;
+
+  if v_last_attempt_at is not null and clock_timestamp() - v_last_attempt_at < interval '350 milliseconds' then
+    return jsonb_build_object('earned', '[]'::jsonb, 'xp', coalesce(v_xp, 0));
+  end if;
+
   insert into public.attempts (user_id, session_id, question_type, page, is_correct)
   values (v_uid, p_session_id, p_question_type, p_page, p_is_correct);
 
@@ -234,14 +252,15 @@ begin
     where id = p_session_id and user_id = v_uid;
   end if;
 
-  insert into public.user_stats (user_id, xp, total_correct, total_answers, current_streak, best_streak)
+  insert into public.user_stats (user_id, xp, total_correct, total_answers, current_streak, best_streak, last_attempt_at)
   values (
     v_uid,
     case when p_is_correct then 10 else 0 end,
     case when p_is_correct then 1 else 0 end,
     1,
     case when p_is_correct then 1 else 0 end,
-    case when p_is_correct then 1 else 0 end
+    case when p_is_correct then 1 else 0 end,
+    clock_timestamp()
   )
   on conflict (user_id) do update set
     xp = public.user_stats.xp + (case when p_is_correct then 10 else 0 end),
@@ -252,6 +271,7 @@ begin
       public.user_stats.best_streak,
       case when p_is_correct then public.user_stats.current_streak + 1 else 0 end
     ),
+    last_attempt_at = clock_timestamp(),
     updated_at = now();
 
   select xp, total_correct, best_streak into v_xp, v_total_correct, v_best_streak
