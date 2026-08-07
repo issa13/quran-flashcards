@@ -601,6 +601,7 @@ playAudioBtn.addEventListener("click", async () => {
     await currentAudioEl.play();
     playAudioBtn.textContent = "⏸️ إيقاف";
     playAudioBtn.classList.add("playing");
+    unlockChoicesAfterListening();
   } catch (e) {
     stopAudio();
     setStatus("تعذّر تشغيل الصوت. حاول مرة أخرى.");
@@ -645,6 +646,7 @@ function getTypeDescription(type) {
     case "pageStartToPrevLast": return "السؤال هو أول آية في الصفحة، والجواب هو آخر آية في الصفحة السابقة.";
     case "juz": return "سيظهر لك آية، والمطلوب أن تحدد رقم الجزء الذي تنتمي إليه.";
     case "ayahNumber": return "سيظهر لك آية، والمطلوب أن تخمّن رقمها داخل سورتها.";
+    case "listenNext": return "استمع إلى تلاوة الآية (لن يظهر نصها)، ثم اختر الآية التي تليها مباشرة في نفس الصفحة. لن تتمكن من الإجابة قبل الاستماع.";
     default: return "اختر نوع السؤال ثم اضغط سؤال جديد.";
   }
 }
@@ -663,6 +665,7 @@ function getTypeLabel(type) {
     case "pageStartToPrevLast": return "من أول آية: خمن آخر آية بالصفحة السابقة";
     case "juz": return "خمن الجزء";
     case "ayahNumber": return "خمن رقم الآية بالسورة";
+    case "listenNext": return "🎧 استمع ثم خمن الآية التالية";
     default: return "—";
   }
 }
@@ -725,6 +728,16 @@ function pickQAFromPage(ayahs, type, page) {
     const num = candidate.numberInSurah;
     if (num == null) return null;
     return { q: clean(candidate.text), a: String(num), kind: "ayahNumber", qAyahNumber: candidate.number };
+  }
+
+  if (type === "listenNext") {
+    // q is deliberately left empty — this type is audio-only, the
+    // ayah's text must never be shown (see generateCard()'s handling
+    // of qa.audioOnly). Only the answer (the next ayah) is text.
+    const idx = randInt(0, ayahs.length - 2);
+    const qAyah = ayahs[idx];
+    const aAyah = ayahs[idx + 1];
+    return { q: "", a: clean(aAyah.text), kind: "text", qAyahNumber: qAyah.number, audioOnly: true };
   }
 
   return null;
@@ -853,16 +866,25 @@ async function buildChoices(qa, minP, maxP) {
 }
 
 // -------- MCQ rendering & interaction --------
-function renderChoices(choices) {
+function renderChoices(choices, locked) {
   mcqChoicesEl.innerHTML = "";
   choices.forEach((choiceText, idx) => {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "mcq-choice";
+    btn.className = "mcq-choice" + (locked ? " locked" : "");
     btn.textContent = choiceText;
     btn.style.fontSize = choiceFontSize(choiceText);
     btn.dataset.index = String(idx);
+    if (locked) btn.disabled = true;
     mcqChoicesEl.appendChild(btn);
+  });
+}
+
+function unlockChoicesAfterListening() {
+  const buttons = Array.from(mcqChoicesEl.querySelectorAll(".mcq-choice.locked"));
+  buttons.forEach((btn) => {
+    btn.disabled = false;
+    btn.classList.remove("locked");
   });
 }
 
@@ -987,6 +1009,7 @@ async function generateCard() {
     // reset
     stopTimer();
     hideAudioButton();
+    flashcard.classList.remove("audio-question");
     mcqChoicesEl.innerHTML = "";
     answeredThisCard = false;
     hasActiveCard = false;
@@ -1018,8 +1041,15 @@ async function generateCard() {
       return;
     }
 
-    setCardText(qText, qa.q);
-    renderChoices(built.choices);
+    const isAudioOnly = !!qa.audioOnly;
+    flashcard.classList.toggle("audio-question", isAudioOnly);
+
+    if (isAudioOnly) {
+      setCardText(qText, "🎧 اضغط زر الاستماع لسماع الآية، ثم اختر الآية التالية لها");
+    } else {
+      setCardText(qText, qa.q);
+    }
+    renderChoices(built.choices, isAudioOnly);
     currentCorrectIndex = built.correctIndex;
 
     currentQuestionType = type;
@@ -1035,7 +1065,9 @@ async function generateCard() {
     const sec = getTimerSeconds();
     const timerText = (sec <= 0) ? "بدون مؤقت" : `${sec} ثانية`;
 
-    setStatus(`جاهز. النوع: ${label} | المؤقت: ${timerText}`);
+    setStatus(isAudioOnly
+      ? `استمع إلى الآية أولاً ثم اختر الإجابة. | المؤقت: ${timerText}`
+      : `جاهز. النوع: ${label} | المؤقت: ${timerText}`);
     unlockGenerate();
 
     startTimer();

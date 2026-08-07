@@ -513,6 +513,32 @@ select:focus, input:focus {
   color: var(--accent-text);
 }
 
+/* Audio-only question (listenNext): the text is deliberately a
+   placeholder, and the listen button is the whole point — make it
+   unmissable with a gentle pulse until pressed. */
+.mcq-card.audio-question #qText {
+  font-style: italic;
+  color: var(--muted);
+  font-weight: 700;
+}
+.mcq-card.audio-question .audio-btn {
+  padding: 12px 20px;
+  font-size: 15px;
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--emerald-light), var(--emerald-dark));
+  border-color: var(--emerald-dark);
+  color: #fff;
+  animation: audioPulse 1.8s ease-in-out infinite;
+}
+.mcq-card.audio-question .audio-btn.playing,
+.mcq-card.audio-question .audio-btn:disabled {
+  animation: none;
+}
+@keyframes audioPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--emerald-rgb), 0.35); }
+  50% { box-shadow: 0 0 0 10px rgba(var(--emerald-rgb), 0); }
+}
+
 .mcq-choices {
   margin-top: 16px;
   display: flex;
