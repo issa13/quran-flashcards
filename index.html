@@ -44,6 +44,7 @@
         <div class="user-buttons">
           <button id="statsOpenBtn" class="btn small ghost">📊 إحصائياتي</button>
           <button id="achievementsOpenBtn" class="btn small ghost">🎖️ إنجازاتي</button>
+          <button id="progressOpenBtn" class="btn small ghost">📈 تقدمي</button>
           <button id="leaderboardOpenBtn" class="btn small ghost">🏆 الصدارة</button>
           <button id="logoutBtn" class="btn small ghost">خروج</button>
         </div>
@@ -346,6 +347,37 @@
       <div id="achievementsBody" class="stats-body">
         <div class="status">جاري التحميل...</div>
       </div>
+    </div>
+  </div>
+
+  <!-- Progress modal (heatmap + daily streak + share link) -->
+  <div id="progressModal" class="modal-overlay" style="display:none;">
+    <div class="modal modal-wide">
+      <div class="modal-head">
+        <div class="modal-title">📈 تقدمي</div>
+        <button class="modal-close" id="progressCloseBtn">✕</button>
+      </div>
+      <div id="progressBody" class="stats-body">
+        <div class="status">جاري التحميل...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Standalone shared read-only progress page (?share=<token>) —
+       shown instead of the normal app; see auth-ui.js. -->
+  <div id="sharedViewSection" style="display:none;">
+    <div class="wrap">
+      <div class="panel">
+        <div class="topline">
+          <div class="title-block">
+            <div class="app-title">تقدّم <span id="sharedViewName">—</span></div>
+            <div class="title-ornament" aria-hidden="true"><span></span><i></i><span></span></div>
+          </div>
+        </div>
+      </div>
+      <div id="sharedViewBody"></div>
+      <div id="sharedViewError" class="status" style="display:none;"></div>
+      <div class="footer-badge">عرض للقراءة فقط — بطاقات مراجعة القرآن</div>
     </div>
   </div>
 

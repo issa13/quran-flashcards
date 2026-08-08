@@ -497,6 +497,158 @@ create trigger sessions_prevent_range_change
   before update on public.sessions
   for each row execute procedure public.prevent_range_change();
 
+-- 14) Lifetime page-coverage and daily-activity views, for the
+--     "📈 تقدمي" heatmap/streak feature — across every session (even
+--     deleted ones), same "lifetime, account-wide" spirit as levels.
+--     Both are self-scoped (where user_id = auth.uid()) the same way
+--     session_summary is, since the views run with owner privileges
+--     and bypass RLS on the underlying attempts table.
+create or replace view public.user_page_stats as
+select
+  user_id,
+  page,
+  count(*) as total_answers,
+  count(*) filter (where is_correct) as total_correct
+from public.attempts
+where user_id = auth.uid() and page is not null
+group by user_id, page;
+
+create or replace view public.user_daily_activity as
+select
+  user_id,
+  (created_at at time zone 'utc')::date as activity_date,
+  count(*) as total_answers
+from public.attempts
+where user_id = auth.uid()
+group by user_id, (created_at at time zone 'utc')::date;
+
+-- 15) Progress sharing — lets a user generate a read-only link (no
+--     account needed to view it) to their page-coverage heatmap and
+--     daily-activity streak. Off by default; the owner enables it and
+--     can regenerate the token at any time to revoke old links.
+create table if not exists public.progress_shares (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  token uuid not null default gen_random_uuid(),
+  enabled boolean not null default false,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.progress_shares enable row level security;
+
+-- Only the owner can ever read their own row (which includes the
+-- token) via the normal client — a visitor never queries this table
+-- directly, only through get_shared_progress() below, which checks
+-- the token itself rather than relying on RLS. No insert/update
+-- policy is needed: all writes go through the security-definer RPCs
+-- below, each of which pins its write to auth.uid() internally.
+drop policy if exists "Users view their own share settings" on public.progress_shares;
+create policy "Users view their own share settings"
+  on public.progress_shares for select
+  using (auth.uid() = user_id);
+
+create or replace function public.set_share_enabled(p_enabled boolean)
+returns public.progress_shares
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_row public.progress_shares;
+begin
+  insert into public.progress_shares (user_id, enabled)
+  values (auth.uid(), p_enabled)
+  on conflict (user_id) do update set enabled = p_enabled, updated_at = now();
+
+  select * into v_row from public.progress_shares where user_id = auth.uid();
+  return v_row;
+end;
+$$;
+
+grant execute on function public.set_share_enabled(boolean) to authenticated;
+
+create or replace function public.regenerate_share_token()
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_token uuid;
+begin
+  update public.progress_shares
+  set token = gen_random_uuid(), updated_at = now()
+  where user_id = auth.uid()
+  returning token into v_token;
+
+  if v_token is null then
+    insert into public.progress_shares (user_id)
+    values (auth.uid())
+    returning token into v_token;
+  end if;
+
+  return v_token;
+end;
+$$;
+
+grant execute on function public.regenerate_share_token() to authenticated;
+
+-- Callable by anyone (anon included) — the token itself IS the
+-- access control, checked against enabled = true. Returns null if
+-- the token is wrong, unknown, or sharing has been turned off, so
+-- the client can distinguish "no such link" from "empty progress".
+create or replace function public.get_shared_progress(p_token uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid;
+  v_display_name text;
+  v_xp int;
+  v_page_stats jsonb;
+  v_daily jsonb;
+begin
+  select user_id into v_user_id
+  from public.progress_shares
+  where token = p_token and enabled = true;
+
+  if v_user_id is null then
+    return null;
+  end if;
+
+  select display_name into v_display_name from public.profiles where id = v_user_id;
+  select xp into v_xp from public.user_stats where user_id = v_user_id;
+
+  select coalesce(jsonb_agg(jsonb_build_object('page', page, 'total', total_answers, 'correct', total_correct)), '[]'::jsonb)
+    into v_page_stats
+  from (
+    select page, count(*) as total_answers, count(*) filter (where is_correct) as total_correct
+    from public.attempts
+    where user_id = v_user_id and page is not null
+    group by page
+  ) p;
+
+  select coalesce(jsonb_agg(jsonb_build_object('date', activity_date, 'total', total_answers) order by activity_date), '[]'::jsonb)
+    into v_daily
+  from (
+    select (created_at at time zone 'utc')::date as activity_date, count(*) as total_answers
+    from public.attempts
+    where user_id = v_user_id
+    group by (created_at at time zone 'utc')::date
+  ) d;
+
+  return jsonb_build_object(
+    'display_name', coalesce(v_display_name, 'مستخدم'),
+    'xp', coalesce(v_xp, 0),
+    'page_stats', v_page_stats,
+    'daily_activity', v_daily
+  );
+end;
+$$;
+
+grant execute on function public.get_shared_progress(uuid) to anon, authenticated;
+
 -- ============================================================
 -- Done. Next steps:
 -- 1. Project Settings → API → copy "Project URL" and "anon public" key

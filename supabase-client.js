@@ -325,6 +325,69 @@ async function fetchMyAchievements() {
   return data;
 }
 
+// -------- progress (page coverage, daily activity, sharing) --------
+async function fetchMyPageStats() {
+  if (!sb || !currentUser) return [];
+  const { data, error } = await sb.from("user_page_stats").select("*");
+  if (error) {
+    console.error("fetchMyPageStats error", error);
+    return [];
+  }
+  return (data || []).map((r) => ({ page: r.page, total: r.total_answers, correct: r.total_correct }));
+}
+
+async function fetchMyDailyActivity() {
+  if (!sb || !currentUser) return [];
+  const { data, error } = await sb.from("user_daily_activity").select("*");
+  if (error) {
+    console.error("fetchMyDailyActivity error", error);
+    return [];
+  }
+  return (data || []).map((r) => ({ date: r.activity_date, total: r.total_answers }));
+}
+
+async function fetchMyShareSettings() {
+  if (!sb || !currentUser) return null;
+  const { data, error } = await sb.from("progress_shares").select("*").maybeSingle();
+  if (error) {
+    console.error("fetchMyShareSettings error", error);
+    return null;
+  }
+  return data;
+}
+
+async function setShareEnabled(enabled) {
+  if (!sb || !currentUser) return null;
+  const { data, error } = await sb.rpc("set_share_enabled", { p_enabled: enabled });
+  if (error) {
+    console.error("setShareEnabled error", error);
+    return null;
+  }
+  return data;
+}
+
+async function regenerateShareToken() {
+  if (!sb || !currentUser) return null;
+  const { data, error } = await sb.rpc("regenerate_share_token");
+  if (error) {
+    console.error("regenerateShareToken error", error);
+    return null;
+  }
+  return data;
+}
+
+// Works for anyone, logged in or not — the token is the access
+// control (see get_shared_progress() in supabase-schema.sql).
+async function fetchSharedProgress(token) {
+  if (!sb || !token) return null;
+  const { data, error } = await sb.rpc("get_shared_progress", { p_token: token });
+  if (error) {
+    console.error("fetchSharedProgress error", error);
+    return null;
+  }
+  return data;
+}
+
 // -------- leaderboard (raw rows; caller ranks with Wilson score) --------
 async function fetchSessionLeaderboard() {
   if (!sb) return [];

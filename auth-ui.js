@@ -56,6 +56,11 @@ const achievementsOpenBtn = document.getElementById("achievementsOpenBtn");
 const achievementsCloseBtn = document.getElementById("achievementsCloseBtn");
 const achievementsBody = document.getElementById("achievementsBody");
 
+const progressModal = document.getElementById("progressModal");
+const progressOpenBtn = document.getElementById("progressOpenBtn");
+const progressCloseBtn = document.getElementById("progressCloseBtn");
+const progressBody = document.getElementById("progressBody");
+
 const logoutBtn = document.getElementById("logoutBtn");
 
 // -------- dark mode --------
@@ -653,6 +658,230 @@ achievementsOpenBtn.addEventListener("click", async () => {
 
 achievementsCloseBtn.addEventListener("click", () => hideModal(achievementsModal));
 achievementsModal.addEventListener("click", (e) => { if (e.target === achievementsModal) hideModal(achievementsModal); });
+
+// -------- progress: heatmap + daily streak (shared by the "📈 تقدمي"
+// modal and the standalone shared-view page below) --------
+function heatColorForAccuracy(pct) {
+  const hue = Math.max(0, Math.min(120, (pct / 100) * 120)); // 0=red, 120=green
+  return `hsl(${hue}, 60%, 45%)`;
+}
+
+function renderHeatmapInto(containerEl, pageStats) {
+  const map = new Map((pageStats || []).map((r) => [r.page, r]));
+  let html = "";
+  for (let p = 1; p <= 604; p++) {
+    const s = map.get(p);
+    if (s && s.total > 0) {
+      const pct = Math.round((100 * s.correct) / s.total);
+      html += `<div class="heatmap-cell" style="background:${heatColorForAccuracy(pct)}" title="صفحة ${p}: ${s.correct}/${s.total} (${pct}%)"></div>`;
+    } else {
+      html += `<div class="heatmap-cell" title="صفحة ${p}: لم تُدرَس بعد"></div>`;
+    }
+  }
+  containerEl.innerHTML = html;
+}
+
+function computeStreaks(dailyActivity) {
+  const daySet = new Set((dailyActivity || []).map((d) => d.date));
+  let current = 0;
+  const cursor = new Date();
+  for (;;) {
+    const key = cursor.toISOString().slice(0, 10);
+    if (!daySet.has(key)) break;
+    current++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  let longest = 0;
+  let run = 0;
+  let prevDate = null;
+  Array.from(daySet).sort().forEach((d) => {
+    const dt = new Date(d + "T00:00:00Z");
+    run = (prevDate && Math.round((dt - prevDate) / 86400000) === 1) ? run + 1 : 1;
+    longest = Math.max(longest, run);
+    prevDate = dt;
+  });
+
+  return { current, longest: Math.max(longest, current) };
+}
+
+function renderStreakInto(stripEl, numbersEl, dailyActivity) {
+  const dayMap = new Map((dailyActivity || []).map((r) => [r.date, r.total]));
+  const today = new Date();
+  let html = "";
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    const total = dayMap.get(key);
+    const active = total != null;
+    html += `<div class="streak-day${active ? " active" : ""}" title="${key}${active ? ` — ${total} سؤال` : ""}"></div>`;
+  }
+  stripEl.innerHTML = html;
+
+  const streaks = computeStreaks(dailyActivity);
+  numbersEl.textContent = `🔥 التتابع الحالي: ${streaks.current} يوم — الأطول: ${streaks.longest} يوم`;
+}
+
+function progressSummaryHtml(pageStats, extra) {
+  const touched = pageStats.length;
+  const totalAnswers = pageStats.reduce((sum, r) => sum + r.total, 0);
+  const totalCorrect = pageStats.reduce((sum, r) => sum + r.correct, 0);
+  const pct = totalAnswers ? Math.round((100 * totalCorrect) / totalAnswers) : 0;
+  return `
+    <div class="progress-summary">
+      <div class="stat-big">${touched}/604</div>
+      <div class="stat-caption">صفحة تمت مراجعتها — دقة إجمالية ${pct}%${extra || ""}</div>
+    </div>`;
+}
+
+// -------- progress modal (own account) --------
+function buildProgressBodyHtml() {
+  return `
+    <div id="progressSummary"></div>
+    <div class="section-label">خريطة تغطية الصفحات (604 صفحة)</div>
+    <div id="myHeatmap" class="heatmap-grid"></div>
+    <div class="section-label">النشاط اليومي (آخر 30 يومًا)</div>
+    <div id="myStreakStrip" class="streak-strip"></div>
+    <div id="myStreakNumbers" class="streak-numbers"></div>
+    <div class="share-section">
+      <label class="toggle-row">
+        <input type="checkbox" id="shareProgressToggle">
+        🔗 مشاركة تقدمي عبر رابط للقراءة فقط (بدون حساب)
+      </label>
+      <div id="shareLinkRow" class="share-link-row" style="display:none;">
+        <input id="shareLinkInput" type="text" readonly>
+        <button id="copyShareLinkBtn" type="button" class="btn small ghost">نسخ</button>
+        <button id="regenerateShareLinkBtn" type="button" class="btn small ghost">تجديد</button>
+      </div>
+      <div class="hint">تجديد الرابط يُبطل أي رابط قديم تمت مشاركته.</div>
+    </div>`;
+}
+
+function shareUrlFor(token) {
+  return `${location.origin}${location.pathname}?share=${token}`;
+}
+
+progressOpenBtn.addEventListener("click", async () => {
+  showModal(progressModal);
+  progressBody.innerHTML = '<div class="status">جاري التحميل...</div>';
+
+  const [pageStats, dailyActivity, shareSettings] = await Promise.all([
+    fetchMyPageStats(),
+    fetchMyDailyActivity(),
+    fetchMyShareSettings(),
+  ]);
+
+  progressBody.innerHTML = buildProgressBodyHtml();
+  document.getElementById("progressSummary").innerHTML = progressSummaryHtml(pageStats, "");
+  renderHeatmapInto(document.getElementById("myHeatmap"), pageStats);
+  renderStreakInto(document.getElementById("myStreakStrip"), document.getElementById("myStreakNumbers"), dailyActivity);
+
+  const shareToggle = document.getElementById("shareProgressToggle");
+  const shareLinkRow = document.getElementById("shareLinkRow");
+  const shareLinkInput = document.getElementById("shareLinkInput");
+  const copyBtn = document.getElementById("copyShareLinkBtn");
+  const regenBtn = document.getElementById("regenerateShareLinkBtn");
+
+  function applyShareSettings(settings) {
+    const enabled = !!(settings && settings.enabled);
+    shareToggle.checked = enabled;
+    shareLinkRow.style.display = (enabled && settings.token) ? "flex" : "none";
+    if (enabled && settings.token) shareLinkInput.value = shareUrlFor(settings.token);
+  }
+  applyShareSettings(shareSettings);
+
+  shareToggle.addEventListener("change", async () => {
+    const wanted = shareToggle.checked;
+    shareToggle.disabled = true;
+    const updated = await setShareEnabled(wanted);
+    shareToggle.disabled = false;
+    if (!updated) {
+      alert("تعذّر تحديث إعدادات المشاركة. حاول مرة أخرى.");
+      shareToggle.checked = !wanted;
+      return;
+    }
+    applyShareSettings(updated);
+  });
+
+  copyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(shareLinkInput.value);
+      copyBtn.textContent = "تم النسخ ✓";
+      setTimeout(() => { copyBtn.textContent = "نسخ"; }, 1500);
+    } catch (e) {
+      alert("انسخ الرابط يدويًا: " + shareLinkInput.value);
+    }
+  });
+
+  regenBtn.addEventListener("click", async () => {
+    const ok = confirm("سيتم إبطال أي رابط قديم تمت مشاركته. هل تريد المتابعة؟");
+    if (!ok) return;
+    regenBtn.disabled = true;
+    const token = await regenerateShareToken();
+    regenBtn.disabled = false;
+    if (!token) {
+      alert("تعذّر تجديد الرابط. حاول مرة أخرى.");
+      return;
+    }
+    shareLinkInput.value = shareUrlFor(token);
+    shareLinkRow.style.display = "flex";
+  });
+});
+
+progressCloseBtn.addEventListener("click", () => hideModal(progressModal));
+progressModal.addEventListener("click", (e) => { if (e.target === progressModal) hideModal(progressModal); });
+
+// -------- standalone shared-view page (?share=<token>) --------
+// Replaces the whole app UI with a read-only progress view — no
+// account or login needed to see it. Runs once at load; if there's
+// no ?share= param this is a no-op and the normal app behaves as usual.
+async function initSharedViewIfPresent() {
+  const token = new URLSearchParams(location.search).get("share");
+  if (!token) return;
+
+  const appWrap = document.querySelector("body > .wrap");
+  if (appWrap) appWrap.style.display = "none";
+
+  const sharedViewSection = document.getElementById("sharedViewSection");
+  const sharedViewName = document.getElementById("sharedViewName");
+  const sharedViewBody = document.getElementById("sharedViewBody");
+  const sharedViewError = document.getElementById("sharedViewError");
+
+  sharedViewSection.style.display = "block";
+  sharedViewBody.innerHTML = '<div class="status">جاري التحميل...</div>';
+
+  const data = (typeof fetchSharedProgress === "function") ? await fetchSharedProgress(token) : null;
+
+  if (!data) {
+    sharedViewBody.innerHTML = "";
+    sharedViewError.style.display = "block";
+    sharedViewError.textContent = "هذا الرابط غير صالح أو تم إيقاف المشاركة من صاحبه.";
+    return;
+  }
+
+  sharedViewName.textContent = data.display_name || "مستخدم";
+  const level = (typeof levelFromXp === "function") ? levelFromXp(data.xp || 0) : null;
+  const pageStats = (data.page_stats || []).map((r) => ({ page: r.page, total: r.total, correct: r.correct }));
+  const dailyActivity = data.daily_activity || [];
+
+  sharedViewBody.innerHTML = `
+    <div class="panel">${progressSummaryHtml(pageStats, level != null ? ` — المستوى ${level}` : "")}</div>
+    <div class="panel">
+      <div class="title">خريطة تغطية الصفحات</div>
+      <div id="sharedHeatmap" class="heatmap-grid"></div>
+    </div>
+    <div class="panel">
+      <div class="title">النشاط اليومي (آخر 30 يومًا)</div>
+      <div id="sharedStreakStrip" class="streak-strip"></div>
+      <div id="sharedStreakNumbers" class="streak-numbers"></div>
+    </div>`;
+
+  renderHeatmapInto(document.getElementById("sharedHeatmap"), pageStats);
+  renderStreakInto(document.getElementById("sharedStreakStrip"), document.getElementById("sharedStreakNumbers"), dailyActivity);
+}
+
+initSharedViewIfPresent();
 
 // Kick off auth
 initAuth();

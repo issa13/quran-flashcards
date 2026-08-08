@@ -994,6 +994,72 @@ select:focus, input:focus {
 .badge-title { margin-top: 6px; font-size: 12px; font-weight: 800; color: var(--ink); }
 .badge-desc { margin-top: 3px; font-size: 10.5px; color: var(--muted); line-height: 1.5; }
 
+/* -------- Progress: heatmap + streak + sharing -------- */
+.progress-summary {
+  text-align: center;
+  padding: 6px 0 16px;
+  border-bottom: 1px dashed rgba(var(--gold-rgb), 0.35);
+  margin-bottom: 14px;
+}
+
+.section-label {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(22, 1fr);
+  gap: 2px;
+}
+.heatmap-cell {
+  aspect-ratio: 1 / 1;
+  border-radius: 2px;
+  background: rgba(var(--ink-rgb), 0.08);
+}
+
+.streak-strip {
+  display: grid;
+  grid-template-columns: repeat(15, 1fr);
+  gap: 4px;
+}
+.streak-day {
+  aspect-ratio: 1 / 1;
+  border-radius: 4px;
+  background: rgba(var(--ink-rgb), 0.08);
+}
+.streak-day.active {
+  background: linear-gradient(135deg, var(--emerald-light), var(--emerald));
+}
+
+.streak-numbers {
+  margin-top: 10px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--accent-text);
+}
+
+.share-section {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(var(--gold-rgb), 0.35);
+}
+
+.share-link-row {
+  margin-top: 10px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.share-link-row input {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+
 /* -------- Achievement toast -------- */
 .achievement-toast {
   position: fixed;
