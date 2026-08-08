@@ -132,36 +132,90 @@ body::before {
   gap: 14px;
 }
 
-/* -------- Theme toggle -------- */
-.theme-row {
+/* -------- Top bar (hamburger + theme toggle) -------- */
+.topbar {
   width: min(94vw, var(--maxw));
   display: flex;
-  justify-content: flex-start;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
+
+.menu-toggle-btn {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: 1.5px solid rgba(var(--gold-rgb), 0.3);
+  background: var(--card);
+  color: var(--accent-text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+.menu-toggle-btn:hover { background: var(--success-bg); }
 
 .theme-toggle {
   font-size: 11px;
 }
 
-/* -------- Auth bar -------- */
-.authbar {
-  width: min(94vw, var(--maxw));
+/* -------- Side menu (drawer) -------- */
+.side-menu-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 19, 0.5);
+  z-index: 60;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s var(--ease);
+}
+.side-menu-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.side-menu {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: min(84vw, 320px);
+  background: var(--paper);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.25);
+  z-index: 61;
+  padding: 18px;
+  overflow-y: auto;
+  transform: translateX(100%);
+  transition: transform 0.28s var(--ease);
+}
+.side-menu.open { transform: translateX(0); }
+
+.side-menu-head {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed rgba(var(--gold-rgb), 0.3);
+}
+
+.app-title-mini {
+  font-family: 'Aref Ruqaa', serif;
+  font-weight: 700;
+  font-size: 17px;
+  color: var(--accent-text);
 }
 
 .authbar-side {
   width: 100%;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-#userActions.authbar-side {
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
+  gap: 10px;
 }
 
 .user-identity {
@@ -170,6 +224,9 @@ body::before {
   justify-content: center;
   gap: 8px;
   flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed rgba(var(--gold-rgb), 0.3);
+  margin-bottom: 4px;
 }
 
 .user-name {
@@ -180,19 +237,13 @@ body::before {
 
 .user-buttons {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
 }
-
-@media (max-width: 480px) {
-  .user-buttons .btn.small.ghost {
-    flex: 1 1 auto;
-    padding: 7px 8px;
-    font-size: 11px;
-    text-align: center;
-  }
+.user-buttons .btn.small.ghost,
+.authbar-side .btn.small {
+  width: 100%;
+  text-align: center;
 }
 
 /* -------- Buttons -------- */
@@ -920,7 +971,6 @@ select:focus, input:focus {
 @media (max-width: 380px) {
   .text { font-size: 16px; }
   .field { min-width: 150px; }
-  .authbar { justify-content: center; }
   .app-title { font-size: 19px; }
 }
 

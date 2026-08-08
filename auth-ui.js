@@ -90,6 +90,33 @@ themeToggleBtn.addEventListener("click", () => {
 
 setThemeButtonLabel();
 
+// -------- side menu (drawer) --------
+const menuToggleBtn = document.getElementById("menuToggleBtn");
+const sideMenu = document.getElementById("sideMenu");
+const sideMenuOverlay = document.getElementById("sideMenuOverlay");
+const sideMenuCloseBtn = document.getElementById("sideMenuCloseBtn");
+
+function openSideMenu() {
+  sideMenu.classList.add("open");
+  sideMenuOverlay.classList.add("open");
+}
+function closeSideMenu() {
+  sideMenu.classList.remove("open");
+  sideMenuOverlay.classList.remove("open");
+}
+
+menuToggleBtn.addEventListener("click", openSideMenu);
+sideMenuCloseBtn.addEventListener("click", closeSideMenu);
+sideMenuOverlay.addEventListener("click", closeSideMenu);
+
+// Any button inside the drawer (stats/achievements/progress/leaderboard/
+// login/logout) closes the drawer too, so picking an action doesn't
+// leave it hanging open behind the modal it just opened.
+sideMenu.addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (btn && btn.id !== "sideMenuCloseBtn") closeSideMenu();
+});
+
 let authMode = "login"; // or "signup"
 let mySessions = [];          // cached list from session_summary
 let selectedSessionId = null; // which session is shown in the stats modal

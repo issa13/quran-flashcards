@@ -269,10 +269,19 @@ function resolveRangeBounds(rangeKey, customMinRaw, customMaxRaw) {
 
   switch (rangeKey) {
     case "first100": return { minP: 1, maxP: 100 };
+    case "sabatawal": return { minP: 2, maxP: 207 };
     case "juz1": return { minP: 1, maxP: 21 };
+    case "juz27": return { minP: 522, maxP: 541 };
+    case "juz28": return { minP: 542, maxP: 561 };
+    case "juz29": return { minP: 562, maxP: 581 };
     case "juz30": return { minP: 582, maxP: 604 };
     case "baqarah": return { minP: 2, maxP: 49 };
     case "imran": return { minP: 50, maxP: 76 };
+    case "nisa": return { minP: 77, maxP: 106 };
+    case "maidah": return { minP: 106, maxP: 127 };
+    case "anam": return { minP: 128, maxP: 150 };
+    case "anfal": return { minP: 177, maxP: 186 };
+    case "tawbah": return { minP: 187, maxP: 207 };
     case "zahrawain": return { minP: 2, maxP: 76 };
     default: return { minP: 1, maxP: 604 };
   }
@@ -1024,7 +1033,7 @@ async function generateCard() {
       qa = pickQAFromPage(ayahs, type, page);
     }
 
-    if (!qa || !qa.q || !qa.a) {
+    if (!qa || (!qa.q && !qa.audioOnly) || !qa.a) {
       setCardText(qText, "تعذر إنشاء سؤال. حاول مرة أخرى.");
       mcqChoicesEl.innerHTML = "";
       setStatus("حصلت مشكلة. جرّب مرة ثانية.");
