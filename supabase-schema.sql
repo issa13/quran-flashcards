@@ -195,7 +195,9 @@ create policy "Users view their own achievements"
 --    refresh the level badge without a second round trip. security
 --    definer so it can write all these tables in one go, but every
 --    write is still pinned to auth.uid() — a user can only ever
---    record or widen their own rows.
+--    record or widen their own rows, and a p_session_id that isn't
+--    actually theirs is silently ignored (see the ownership check
+--    below) rather than trusted.
 --
 --    Rate limited to one recorded attempt per 350ms per user (well
 --    under any realistic "read the question, tap a choice" pace) —
@@ -232,7 +234,23 @@ declare
   v_distinct_pages int;
   v_code text;
   v_earned text[] := '{}';
+  v_owns_session boolean;
 begin
+  -- security definer bypasses RLS entirely, so this ownership check is
+  -- the ONLY thing stopping a caller from passing another user's
+  -- (guessable, sequential) session id and attaching their attempt to
+  -- it — which would pollute that session's total_answers/accuracy in
+  -- session_summary/session_leaderboard. A non-owned id is treated as
+  -- "no session" rather than trusted.
+  if p_session_id is not null then
+    select exists(
+      select 1 from public.sessions where id = p_session_id and user_id = v_uid
+    ) into v_owns_session;
+    if not v_owns_session then
+      p_session_id := null;
+    end if;
+  end if;
+
   select xp, last_attempt_at into v_xp, v_last_attempt_at
   from public.user_stats where user_id = v_uid;
 

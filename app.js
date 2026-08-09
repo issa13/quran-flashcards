@@ -1166,7 +1166,12 @@ function applyRemoteSettings(settings) {
   if (settings.custom_max != null) customMaxEl.value = settings.custom_max;
   showHideCustomRange();
   settingsSyncReady = true;
-  refreshQuestionTypeAvailability();
+  // No refreshQuestionTypeAvailability() call here — this can run
+  // before or after the session-setup onAuthChange handler below
+  // finishes resolving activeSessionId (both fire off the same auth
+  // event), and that handler always calls it once the session range
+  // is actually known, so calling it here too just risked a brief
+  // "no range" flash if this happened to resolve first.
 }
 
 [qTypeSelect, timerSelect, rangeSelect, customMinEl, customMaxEl].forEach((el) => {
