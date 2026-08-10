@@ -138,14 +138,14 @@ async function ensureActiveSession() {
   if (settings?.active_session_id) {
     const { data } = await sb
       .from("sessions")
-      .select("id, range_min, range_max")
+      .select("id, title, range_min, range_max")
       .eq("id", settings.active_session_id)
       .maybeSingle();
-    if (data) return { id: data.id, rangeMin: data.range_min, rangeMax: data.range_max };
+    if (data) return { id: data.id, title: data.title, rangeMin: data.range_min, rangeMax: data.range_max };
   }
 
   const newId = await createSession("الجلسة الأولى", 1, 604);
-  return { id: newId, rangeMin: 1, rangeMax: 604 };
+  return { id: newId, title: "الجلسة الأولى", rangeMin: 1, rangeMax: 604 };
 }
 
 async function fetchMySessions() {
@@ -325,7 +325,7 @@ async function fetchMyAchievements() {
   return data;
 }
 
-// -------- progress (page coverage, daily activity, sharing) --------
+// -------- progress (page coverage, daily activity) --------
 async function fetchMyPageStats() {
   if (!sb || !currentUser) return [];
   const { data, error } = await sb.from("user_page_stats").select("*");
@@ -346,43 +346,84 @@ async function fetchMyDailyActivity() {
   return (data || []).map((r) => ({ date: r.activity_date, total: r.total_answers }));
 }
 
-async function fetchMyShareSettings() {
+// -------- friends --------
+async function fetchMyFriendCode() {
   if (!sb || !currentUser) return null;
-  const { data, error } = await sb.from("progress_shares").select("*").maybeSingle();
+  const { data, error } = await sb.from("profiles").select("friend_code").eq("id", currentUser.id).maybeSingle();
   if (error) {
-    console.error("fetchMyShareSettings error", error);
+    console.error("fetchMyFriendCode error", error);
     return null;
   }
-  return data;
+  return data?.friend_code || null;
 }
 
-async function setShareEnabled(enabled) {
-  if (!sb || !currentUser) return null;
-  const { data, error } = await sb.rpc("set_share_enabled", { p_enabled: enabled });
+async function sendFriendRequest(friendCode) {
+  if (!sb || !currentUser) return { ok: false, error: "not_signed_in" };
+  const { data, error } = await sb.rpc("send_friend_request", { p_friend_code: friendCode });
   if (error) {
-    console.error("setShareEnabled error", error);
-    return null;
+    console.error("sendFriendRequest error", error);
+    return { ok: false, error: "request_failed" };
   }
-  return data;
+  return data || { ok: false, error: "request_failed" };
 }
 
-async function regenerateShareToken() {
-  if (!sb || !currentUser) return null;
-  const { data, error } = await sb.rpc("regenerate_share_token");
+async function respondFriendRequest(requestId, accept) {
+  if (!sb || !currentUser) return false;
+  const { data, error } = await sb.rpc("respond_friend_request", { p_request_id: requestId, p_accept: accept });
   if (error) {
-    console.error("regenerateShareToken error", error);
-    return null;
+    console.error("respondFriendRequest error", error);
+    return false;
   }
-  return data;
+  return !!data;
 }
 
-// Works for anyone, logged in or not — the token is the access
-// control (see get_shared_progress() in supabase-schema.sql).
-async function fetchSharedProgress(token) {
-  if (!sb || !token) return null;
-  const { data, error } = await sb.rpc("get_shared_progress", { p_token: token });
+async function removeFriend(otherUserId) {
+  if (!sb || !currentUser) return false;
+  const { data, error } = await sb.rpc("remove_friend", { p_other_user_id: otherUserId });
   if (error) {
-    console.error("fetchSharedProgress error", error);
+    console.error("removeFriend error", error);
+    return false;
+  }
+  return !!data;
+}
+
+async function fetchIncomingFriendRequests() {
+  if (!sb || !currentUser) return [];
+  const { data, error } = await sb.from("my_incoming_friend_requests").select("*").order("created_at", { ascending: false });
+  if (error) {
+    console.error("fetchIncomingFriendRequests error", error);
+    return [];
+  }
+  return data || [];
+}
+
+async function fetchOutgoingFriendRequests() {
+  if (!sb || !currentUser) return [];
+  const { data, error } = await sb.from("my_outgoing_friend_requests").select("*").order("created_at", { ascending: false });
+  if (error) {
+    console.error("fetchOutgoingFriendRequests error", error);
+    return [];
+  }
+  return data || [];
+}
+
+async function fetchMyFriends() {
+  if (!sb || !currentUser) return [];
+  const { data, error } = await sb.from("my_friends").select("*").order("friend_display_name", { ascending: true });
+  if (error) {
+    console.error("fetchMyFriends error", error);
+    return [];
+  }
+  return data || [];
+}
+
+// Full profile bundle for an accepted friend — null if not actually
+// friends (see get_friend_profile() in supabase-schema.sql).
+async function fetchFriendProfile(friendUserId) {
+  if (!sb || !currentUser || !friendUserId) return null;
+  const { data, error } = await sb.rpc("get_friend_profile", { p_user_id: friendUserId });
+  if (error) {
+    console.error("fetchFriendProfile error", error);
     return null;
   }
   return data;

@@ -330,7 +330,7 @@ createSessionSubmitBtn.addEventListener("click", async () => {
   // The new session becomes the one and only session new attempts
   // are recorded against, its range is fixed from now on, and the
   // panel score starts fresh for it.
-  if (typeof syncActiveSessionId === "function") syncActiveSessionId(newId, range.minP, range.maxP);
+  if (typeof syncActiveSessionId === "function") syncActiveSessionId(newId, range.minP, range.maxP, name);
   if (typeof resetScore === "function") resetScore();
   if (typeof showSessionRangeUI === "function") showSessionRangeUI(range.minP, range.maxP);
   if (typeof refreshQuestionTypeAvailability === "function") await refreshQuestionTypeAvailability();
@@ -411,6 +411,7 @@ renameSessionBtn.addEventListener("click", async () => {
   }
 
   if (session) session.title = trimmed;
+  if (typeof setActiveSessionTitleIfMatches === "function") setActiveSessionTitleIfMatches(selectedSessionId, trimmed);
   renderSessionChips();
   await renderSelectedSession();
 });
@@ -668,6 +669,14 @@ achievementsOpenBtn.addEventListener("click", async () => {
       <div class="level-progress-caption">${Math.max(0, nextLevelStart - xp)} XP للمستوى التالي</div>
     </div>`;
 
+  achievementsBody.innerHTML = summaryHtml + buildBadgesGridHtml(catalog, earnedCodes);
+});
+
+achievementsCloseBtn.addEventListener("click", () => hideModal(achievementsModal));
+achievementsModal.addEventListener("click", (e) => { if (e.target === achievementsModal) hideModal(achievementsModal); });
+
+// Shared by the achievements modal and the friend-profile modal.
+function buildBadgesGridHtml(catalog, earnedCodes) {
   const badgesHtml = (catalog || [])
     .map((b) => {
       const isEarned = earnedCodes.has(b.code);
@@ -679,12 +688,8 @@ achievementsOpenBtn.addEventListener("click", async () => {
         </div>`;
     })
     .join("");
-
-  achievementsBody.innerHTML = summaryHtml + (badgesHtml ? `<div class="badges-grid">${badgesHtml}</div>` : "");
-});
-
-achievementsCloseBtn.addEventListener("click", () => hideModal(achievementsModal));
-achievementsModal.addEventListener("click", (e) => { if (e.target === achievementsModal) hideModal(achievementsModal); });
+  return badgesHtml ? `<div class="badges-grid">${badgesHtml}</div>` : "";
+}
 
 // -------- progress: heatmap + daily streak (shared by the "📈 تقدمي"
 // modal and the standalone shared-view page below) --------
@@ -736,7 +741,7 @@ function renderStreakInto(stripEl, numbersEl, dailyActivity) {
   const dayMap = new Map((dailyActivity || []).map((r) => [r.date, r.total]));
   const today = new Date();
   let html = "";
-  for (let i = 29; i >= 0; i--) {
+  for (let i = 0; i <= 29; i++) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
     const key = d.toISOString().slice(0, 10);
@@ -770,145 +775,267 @@ function buildProgressBodyHtml() {
     <div id="myHeatmap" class="heatmap-grid"></div>
     <div class="section-label">النشاط اليومي (آخر 30 يومًا)</div>
     <div id="myStreakStrip" class="streak-strip"></div>
-    <div id="myStreakNumbers" class="streak-numbers"></div>
-    <div class="share-section">
-      <label class="toggle-row">
-        <input type="checkbox" id="shareProgressToggle">
-        🔗 مشاركة تقدمي عبر رابط للقراءة فقط (بدون حساب)
-      </label>
-      <div id="shareLinkRow" class="share-link-row" style="display:none;">
-        <input id="shareLinkInput" type="text" readonly>
-        <button id="copyShareLinkBtn" type="button" class="btn small ghost">نسخ</button>
-        <button id="regenerateShareLinkBtn" type="button" class="btn small ghost">تجديد</button>
-      </div>
-      <div class="hint">تجديد الرابط يُبطل أي رابط قديم تمت مشاركته.</div>
-    </div>`;
-}
-
-function shareUrlFor(token) {
-  return `${location.origin}${location.pathname}?share=${token}`;
+    <div id="myStreakNumbers" class="streak-numbers"></div>`;
 }
 
 progressOpenBtn.addEventListener("click", async () => {
   showModal(progressModal);
   progressBody.innerHTML = '<div class="status">جاري التحميل...</div>';
 
-  const [pageStats, dailyActivity, shareSettings] = await Promise.all([
+  const [pageStats, dailyActivity] = await Promise.all([
     fetchMyPageStats(),
     fetchMyDailyActivity(),
-    fetchMyShareSettings(),
   ]);
 
   progressBody.innerHTML = buildProgressBodyHtml();
   document.getElementById("progressSummary").innerHTML = progressSummaryHtml(pageStats, "");
   renderHeatmapInto(document.getElementById("myHeatmap"), pageStats);
   renderStreakInto(document.getElementById("myStreakStrip"), document.getElementById("myStreakNumbers"), dailyActivity);
-
-  const shareToggle = document.getElementById("shareProgressToggle");
-  const shareLinkRow = document.getElementById("shareLinkRow");
-  const shareLinkInput = document.getElementById("shareLinkInput");
-  const copyBtn = document.getElementById("copyShareLinkBtn");
-  const regenBtn = document.getElementById("regenerateShareLinkBtn");
-
-  function applyShareSettings(settings) {
-    const enabled = !!(settings && settings.enabled);
-    shareToggle.checked = enabled;
-    shareLinkRow.style.display = (enabled && settings.token) ? "flex" : "none";
-    if (enabled && settings.token) shareLinkInput.value = shareUrlFor(settings.token);
-  }
-  applyShareSettings(shareSettings);
-
-  shareToggle.addEventListener("change", async () => {
-    const wanted = shareToggle.checked;
-    shareToggle.disabled = true;
-    const updated = await setShareEnabled(wanted);
-    shareToggle.disabled = false;
-    if (!updated) {
-      alert("تعذّر تحديث إعدادات المشاركة. حاول مرة أخرى.");
-      shareToggle.checked = !wanted;
-      return;
-    }
-    applyShareSettings(updated);
-  });
-
-  copyBtn.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(shareLinkInput.value);
-      copyBtn.textContent = "تم النسخ ✓";
-      setTimeout(() => { copyBtn.textContent = "نسخ"; }, 1500);
-    } catch (e) {
-      alert("انسخ الرابط يدويًا: " + shareLinkInput.value);
-    }
-  });
-
-  regenBtn.addEventListener("click", async () => {
-    const ok = confirm("سيتم إبطال أي رابط قديم تمت مشاركته. هل تريد المتابعة؟");
-    if (!ok) return;
-    regenBtn.disabled = true;
-    const token = await regenerateShareToken();
-    regenBtn.disabled = false;
-    if (!token) {
-      alert("تعذّر تجديد الرابط. حاول مرة أخرى.");
-      return;
-    }
-    shareLinkInput.value = shareUrlFor(token);
-    shareLinkRow.style.display = "flex";
-  });
 });
 
 progressCloseBtn.addEventListener("click", () => hideModal(progressModal));
 progressModal.addEventListener("click", (e) => { if (e.target === progressModal) hideModal(progressModal); });
 
-// -------- standalone shared-view page (?share=<token>) --------
-// Replaces the whole app UI with a read-only progress view — no
-// account or login needed to see it. Runs once at load; if there's
-// no ?share= param this is a no-op and the normal app behaves as usual.
-async function initSharedViewIfPresent() {
-  const token = new URLSearchParams(location.search).get("share");
-  if (!token) return;
+// -------- friends modal: my code, add a friend, requests, friend list --------
+const friendsModal = document.getElementById("friendsModal");
+const friendsOpenBtn = document.getElementById("friendsOpenBtn");
+const friendsCloseBtn = document.getElementById("friendsCloseBtn");
+const friendsBody = document.getElementById("friendsBody");
 
-  const appWrap = document.querySelector("body > .wrap");
-  if (appWrap) appWrap.style.display = "none";
+function friendRequestErrorMessage(err) {
+  switch (err) {
+    case "not_found": return "لا يوجد مستخدم بهذا المعرّف.";
+    case "self": return "هذا معرّفك أنت.";
+    case "already_pending": return "طلب الصداقة قيد الانتظار بالفعل.";
+    case "already_accepted": return "أنتما صديقان بالفعل.";
+    case "already_declined": return "تم رفض هذا الطلب سابقًا.";
+    default: return "تعذّر إرسال الطلب. حاول مرة أخرى.";
+  }
+}
 
-  const sharedViewSection = document.getElementById("sharedViewSection");
-  const sharedViewName = document.getElementById("sharedViewName");
-  const sharedViewBody = document.getElementById("sharedViewBody");
-  const sharedViewError = document.getElementById("sharedViewError");
+function buildFriendsBodyHtml() {
+  return `
+    <div class="section-label">معرّفك</div>
+    <div class="friend-code-row">
+      <input id="myFriendCodeInput" type="text" readonly>
+      <button id="copyFriendCodeBtn" type="button" class="btn small ghost">نسخ</button>
+    </div>
+    <div class="hint">شارك هذا المعرّف مع صديق أو ولي أمر ليضيفك من «إضافة صديق».</div>
 
-  sharedViewSection.style.display = "block";
-  sharedViewBody.innerHTML = '<div class="status">جاري التحميل...</div>';
+    <div class="section-label">إضافة صديق</div>
+    <div class="friend-add-row">
+      <input id="addFriendCodeInput" type="text" placeholder="أدخل معرّف صديقك" maxlength="12">
+      <button id="addFriendBtn" type="button" class="btn small ghost">إرسال طلب</button>
+    </div>
 
-  const data = (typeof fetchSharedProgress === "function") ? await fetchSharedProgress(token) : null;
+    <div id="incomingRequestsSection" style="display:none;">
+      <div class="section-label">طلبات واردة</div>
+      <div id="incomingRequestsList" class="friend-list"></div>
+    </div>
+
+    <div id="outgoingRequestsSection" style="display:none;">
+      <div class="section-label">طلبات مرسلة (قيد الانتظار)</div>
+      <div id="outgoingRequestsList" class="friend-list"></div>
+    </div>
+
+    <div class="section-label">أصدقائي</div>
+    <div id="friendsListBody" class="friend-list"></div>`;
+}
+
+async function loadFriendsModal() {
+  friendsBody.innerHTML = '<div class="status">جاري التحميل...</div>';
+
+  const [code, incoming, outgoing, friends] = await Promise.all([
+    fetchMyFriendCode(),
+    fetchIncomingFriendRequests(),
+    fetchOutgoingFriendRequests(),
+    fetchMyFriends(),
+  ]);
+
+  friendsBody.innerHTML = buildFriendsBodyHtml();
+
+  const myCodeInput = document.getElementById("myFriendCodeInput");
+  const copyCodeBtn = document.getElementById("copyFriendCodeBtn");
+  const addCodeInput = document.getElementById("addFriendCodeInput");
+  const addBtn = document.getElementById("addFriendBtn");
+  const incomingSection = document.getElementById("incomingRequestsSection");
+  const incomingList = document.getElementById("incomingRequestsList");
+  const outgoingSection = document.getElementById("outgoingRequestsSection");
+  const outgoingList = document.getElementById("outgoingRequestsList");
+  const friendsListBody = document.getElementById("friendsListBody");
+
+  myCodeInput.value = code || "—";
+
+  copyCodeBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(myCodeInput.value);
+      copyCodeBtn.textContent = "تم النسخ ✓";
+      setTimeout(() => { copyCodeBtn.textContent = "نسخ"; }, 1500);
+    } catch (e) {
+      alert("انسخ المعرّف يدويًا: " + myCodeInput.value);
+    }
+  });
+
+  addBtn.addEventListener("click", async () => {
+    const value = addCodeInput.value.trim();
+    if (!value) return;
+    addBtn.disabled = true;
+    const result = await sendFriendRequest(value);
+    addBtn.disabled = false;
+    if (!result || !result.ok) {
+      alert(friendRequestErrorMessage(result && result.error));
+      return;
+    }
+    addCodeInput.value = "";
+    alert(result.status === "accepted" ? "أصبحتما صديقين!" : "تم إرسال طلب الصداقة.");
+    await loadFriendsModal();
+  });
+
+  if (incoming.length) {
+    incomingSection.style.display = "block";
+    incomingList.innerHTML = incoming
+      .map((r) => `
+        <div class="friend-list-row" data-request-id="${r.id}">
+          <span class="friend-list-name">${escapeHtml(r.from_display_name)}</span>
+          <span class="friend-list-actions">
+            <button type="button" class="btn small ghost accept-request-btn">قبول</button>
+            <button type="button" class="btn small ghost danger decline-request-btn">رفض</button>
+          </span>
+        </div>`)
+      .join("");
+
+    incomingList.querySelectorAll(".accept-request-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = Number(btn.closest(".friend-list-row").dataset.requestId);
+        btn.disabled = true;
+        const ok = await respondFriendRequest(id, true);
+        if (!ok) { alert("تعذّرت الموافقة على الطلب."); btn.disabled = false; return; }
+        await loadFriendsModal();
+      });
+    });
+    incomingList.querySelectorAll(".decline-request-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = Number(btn.closest(".friend-list-row").dataset.requestId);
+        btn.disabled = true;
+        const ok = await respondFriendRequest(id, false);
+        if (!ok) { alert("تعذّر رفض الطلب."); btn.disabled = false; return; }
+        await loadFriendsModal();
+      });
+    });
+  }
+
+  if (outgoing.length) {
+    outgoingSection.style.display = "block";
+    outgoingList.innerHTML = outgoing
+      .map((r) => `
+        <div class="friend-list-row">
+          <span class="friend-list-name">${escapeHtml(r.to_display_name)}</span>
+          <span class="friend-list-status">قيد الانتظار</span>
+        </div>`)
+      .join("");
+  }
+
+  if (!friends.length) {
+    friendsListBody.innerHTML = '<div class="status">لا يوجد أصدقاء بعد.</div>';
+  } else {
+    friendsListBody.innerHTML = friends
+      .map((f) => `
+        <div class="friend-list-row" data-user-id="${f.friend_user_id}">
+          <span class="friend-list-name">${escapeHtml(f.friend_display_name)}</span>
+          <span class="friend-list-actions">
+            <button type="button" class="btn small ghost view-friend-btn">عرض الملف</button>
+            <button type="button" class="btn small ghost danger remove-friend-btn">إزالة</button>
+          </span>
+        </div>`)
+      .join("");
+
+    friendsListBody.querySelectorAll(".view-friend-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const uid = btn.closest(".friend-list-row").dataset.userId;
+        openFriendProfile(uid);
+      });
+    });
+    friendsListBody.querySelectorAll(".remove-friend-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const row = btn.closest(".friend-list-row");
+        const uid = row.dataset.userId;
+        const name = row.querySelector(".friend-list-name").textContent;
+        const ok = confirm(`إزالة "${name}" من الأصدقاء؟`);
+        if (!ok) return;
+        btn.disabled = true;
+        const removed = await removeFriend(uid);
+        if (!removed) { alert("تعذّرت إزالة الصديق."); btn.disabled = false; return; }
+        await loadFriendsModal();
+      });
+    });
+  }
+}
+
+friendsOpenBtn.addEventListener("click", async () => {
+  showModal(friendsModal);
+  await loadFriendsModal();
+});
+friendsCloseBtn.addEventListener("click", () => hideModal(friendsModal));
+friendsModal.addEventListener("click", (e) => { if (e.target === friendsModal) hideModal(friendsModal); });
+
+// -------- friend profile modal --------
+const friendProfileModal = document.getElementById("friendProfileModal");
+const friendProfileCloseBtn = document.getElementById("friendProfileCloseBtn");
+const friendProfileTitle = document.getElementById("friendProfileTitle");
+const friendProfileBody = document.getElementById("friendProfileBody");
+
+async function openFriendProfile(friendUserId) {
+  showModal(friendProfileModal);
+  friendProfileTitle.textContent = "الملف الشخصي";
+  friendProfileBody.innerHTML = '<div class="status">جاري التحميل...</div>';
+
+  const [data, catalog] = await Promise.all([
+    fetchFriendProfile(friendUserId),
+    fetchAchievementsCatalog(),
+  ]);
 
   if (!data) {
-    sharedViewBody.innerHTML = "";
-    sharedViewError.style.display = "block";
-    sharedViewError.textContent = "هذا الرابط غير صالح أو تم إيقاف المشاركة من صاحبه.";
+    friendProfileBody.innerHTML = '<div class="status">تعذّر عرض هذا الملف — تأكد أنكما ما زلتما صديقين.</div>';
     return;
   }
 
-  sharedViewName.textContent = data.display_name || "مستخدم";
+  friendProfileTitle.textContent = data.display_name || "مستخدم";
   const level = (typeof levelFromXp === "function") ? levelFromXp(data.xp || 0) : null;
   const pageStats = (data.page_stats || []).map((r) => ({ page: r.page, total: r.total, correct: r.correct }));
   const dailyActivity = data.daily_activity || [];
+  const earnedCodes = new Set(data.earned_achievements || []);
+  const sessions = data.sessions || [];
 
-  sharedViewBody.innerHTML = `
-    <div class="panel">${progressSummaryHtml(pageStats, level != null ? ` — المستوى ${level}` : "")}</div>
-    <div class="panel">
-      <div class="title">خريطة تغطية الصفحات</div>
-      <div id="sharedHeatmap" class="heatmap-grid"></div>
-    </div>
-    <div class="panel">
-      <div class="title">النشاط اليومي (آخر 30 يومًا)</div>
-      <div id="sharedStreakStrip" class="streak-strip"></div>
-      <div id="sharedStreakNumbers" class="streak-numbers"></div>
-    </div>`;
+  const sessionsHtml = sessions.length
+    ? sessions.map((s) => {
+        const pct = s.total_answers ? Math.round((100 * s.total_correct) / s.total_answers) : 0;
+        const range = (s.range_min != null && s.range_max != null) ? `${s.range_min}–${s.range_max}` : "—";
+        return `
+          <div class="stat-row leaderboard-row">
+            <div class="stat-row-label">${escapeHtml(s.title)}${s.is_public ? " 🏆" : ""} — ${range}</div>
+            <div class="stat-row-value">${s.total_correct}/${s.total_answers} (${pct}%)</div>
+          </div>`;
+      }).join("")
+    : '<div class="status">لا توجد جلسات بعد.</div>';
 
-  renderHeatmapInto(document.getElementById("sharedHeatmap"), pageStats);
-  renderStreakInto(document.getElementById("sharedStreakStrip"), document.getElementById("sharedStreakNumbers"), dailyActivity);
+  friendProfileBody.innerHTML = `
+    ${progressSummaryHtml(pageStats, level != null ? ` — المستوى ${level}` : "")}
+    <div class="section-label">خريطة تغطية الصفحات</div>
+    <div id="friendHeatmap" class="heatmap-grid"></div>
+    <div class="section-label">النشاط اليومي (آخر 30 يومًا)</div>
+    <div id="friendStreakStrip" class="streak-strip"></div>
+    <div id="friendStreakNumbers" class="streak-numbers"></div>
+    <div class="section-label">الإنجازات</div>
+    ${buildBadgesGridHtml(catalog, earnedCodes)}
+    <div class="section-label">الجلسات</div>
+    ${sessionsHtml}`;
+
+  renderHeatmapInto(document.getElementById("friendHeatmap"), pageStats);
+  renderStreakInto(document.getElementById("friendStreakStrip"), document.getElementById("friendStreakNumbers"), dailyActivity);
 }
 
-initSharedViewIfPresent();
+friendProfileCloseBtn.addEventListener("click", () => hideModal(friendProfileModal));
+friendProfileModal.addEventListener("click", (e) => { if (e.target === friendProfileModal) hideModal(friendProfileModal); });
 
 // Kick off auth
 initAuth();

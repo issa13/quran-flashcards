@@ -29,6 +29,7 @@
     <!-- Compact top bar -->
     <div class="topbar">
       <button id="menuToggleBtn" type="button" class="menu-toggle-btn" aria-label="فتح القائمة">☰</button>
+      <div id="topbarSessionName" class="topbar-session-name"></div>
       <button id="themeToggleBtn" type="button" class="btn small ghost theme-toggle" aria-label="تبديل الوضع الليلي">🌙 داكن</button>
     </div>
 
@@ -52,6 +53,7 @@
           <button id="statsOpenBtn" class="btn small ghost">📊 إحصائياتي</button>
           <button id="achievementsOpenBtn" class="btn small ghost">🎖️ إنجازاتي</button>
           <button id="progressOpenBtn" class="btn small ghost">📈 تقدمي</button>
+          <button id="friendsOpenBtn" class="btn small ghost">👥 أصدقائي</button>
           <button id="leaderboardOpenBtn" class="btn small ghost">🏆 الصدارة</button>
           <button id="logoutBtn" class="btn small ghost">خروج</button>
         </div>
@@ -375,7 +377,7 @@
     </div>
   </div>
 
-  <!-- Progress modal (heatmap + daily streak + share link) -->
+  <!-- Progress modal (heatmap + daily streak) -->
   <div id="progressModal" class="modal-overlay" style="display:none;">
     <div class="modal modal-wide">
       <div class="modal-head">
@@ -388,21 +390,29 @@
     </div>
   </div>
 
-  <!-- Standalone shared read-only progress page (?share=<token>) —
-       shown instead of the normal app; see auth-ui.js. -->
-  <div id="sharedViewSection" style="display:none;">
-    <div class="wrap">
-      <div class="panel">
-        <div class="topline">
-          <div class="title-block">
-            <div class="app-title">تقدّم <span id="sharedViewName">—</span></div>
-            <div class="title-ornament" aria-hidden="true"><span></span><i></i><span></span></div>
-          </div>
-        </div>
+  <!-- Friends modal: my code, add a friend, requests, friend list -->
+  <div id="friendsModal" class="modal-overlay" style="display:none;">
+    <div class="modal modal-wide">
+      <div class="modal-head">
+        <div class="modal-title">👥 أصدقائي</div>
+        <button class="modal-close" id="friendsCloseBtn">✕</button>
       </div>
-      <div id="sharedViewBody"></div>
-      <div id="sharedViewError" class="status" style="display:none;"></div>
-      <div class="footer-badge">عرض للقراءة فقط — بطاقات مراجعة القرآن</div>
+      <div id="friendsBody" class="stats-body">
+        <div class="status">جاري التحميل...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Friend profile modal: a friend's progress, achievements, sessions -->
+  <div id="friendProfileModal" class="modal-overlay" style="display:none;">
+    <div class="modal modal-wide">
+      <div class="modal-head">
+        <div class="modal-title" id="friendProfileTitle">الملف الشخصي</div>
+        <button class="modal-close" id="friendProfileCloseBtn">✕</button>
+      </div>
+      <div id="friendProfileBody" class="stats-body">
+        <div class="status">جاري التحميل...</div>
+      </div>
     </div>
   </div>
 

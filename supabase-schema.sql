@@ -39,6 +39,18 @@ create policy "Users can update their own profile"
 -- per-session (see sessions.is_public below), not per-user.
 alter table public.profiles drop column if exists show_on_leaderboard;
 
+-- friend_code: a short public identifier a user shares out-of-band so
+-- someone else can send them a friend request (see friend_requests
+-- below) — replaces the earlier link-token sharing model entirely.
+alter table public.profiles add column if not exists friend_code text;
+
+update public.profiles
+set friend_code = upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8))
+where friend_code is null;
+
+alter table public.profiles alter column friend_code set not null;
+create unique index if not exists profiles_friend_code_key on public.profiles (friend_code);
+
 -- 2) Sessions: a user can have many; each groups its own attempts
 --    and can optionally be published to the public leaderboard.
 create table if not exists public.sessions (
@@ -169,7 +181,10 @@ insert into public.achievements (code, title, description, icon, sort_order) val
   ('streak_10',          'سلسلة 10 متتالية',  'أجب عن 10 أسئلة متتالية بشكل صحيح',                           '🔥', 5),
   ('streak_25',          'سلسلة 25 متتالية',  'أجب عن 25 سؤالاً متتالياً بشكل صحيح',                          '⚡', 6),
   ('perfect_session',    'جلسة مثالية',        'أنهِ جلسة من 20 سؤالاً على الأقل بدقة 100%',                   '🏆', 7),
-  ('wide_coverage_500',  'مسافر في القرآن',    'أجب عن أسئلة من 500 صفحة مختلفة على الأقل عبر كل جلساتك',     '🗺️', 8)
+  ('wide_coverage_500',  'مسافر في القرآن',    'أجب عن أسئلة من 500 صفحة مختلفة على الأقل عبر كل جلساتك',     '🗺️', 8),
+  ('streak_days_3',      'نشاط 3 أيام متتالية', 'مارس التطبيق 3 أيام متتالية',                                '📅', 9),
+  ('streak_days_7',      'أسبوع كامل',          'مارس التطبيق 7 أيام متتالية',                                '🗓️', 10),
+  ('streak_days_30',     'شهر كامل',            'مارس التطبيق 30 يومًا متتاليًا',                              '🌙', 11)
 on conflict (code) do nothing;
 
 create table if not exists public.user_achievements (
@@ -232,6 +247,7 @@ declare
   v_session_total int;
   v_session_correct int;
   v_distinct_pages int;
+  v_day_streak int;
   v_code text;
   v_earned text[] := '{}';
   v_owns_session boolean;
@@ -363,6 +379,44 @@ begin
     if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
   end if;
 
+  -- Current consecutive-day streak (including today, since the
+  -- insert above already recorded today's activity): classic
+  -- "gaps and islands" trick — d minus its row_number() is constant
+  -- across a run of consecutive dates, so the island containing
+  -- today's date has that many rows.
+  with days as (
+    select distinct (created_at at time zone 'utc')::date as d
+    from public.attempts where user_id = v_uid
+  ),
+  grouped as (
+    select d, d - (row_number() over (order by d))::int as grp
+    from days
+  )
+  select count(*) into v_day_streak
+  from grouped
+  where grp = (select grp from grouped where d = (clock_timestamp() at time zone 'utc')::date);
+
+  if coalesce(v_day_streak, 0) >= 3 then
+    v_code := null;
+    insert into public.user_achievements (user_id, code) values (v_uid, 'streak_days_3')
+      on conflict do nothing returning code into v_code;
+    if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
+  end if;
+
+  if coalesce(v_day_streak, 0) >= 7 then
+    v_code := null;
+    insert into public.user_achievements (user_id, code) values (v_uid, 'streak_days_7')
+      on conflict do nothing returning code into v_code;
+    if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
+  end if;
+
+  if coalesce(v_day_streak, 0) >= 30 then
+    v_code := null;
+    insert into public.user_achievements (user_id, code) values (v_uid, 'streak_days_30')
+      on conflict do nothing returning code into v_code;
+    if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
+  end if;
+
   return jsonb_build_object('earned', to_jsonb(v_earned), 'xp', v_xp);
 end;
 $$;
@@ -401,8 +455,12 @@ returns trigger as $$
 declare
   new_session_id bigint;
 begin
-  insert into public.profiles (id, display_name)
-  values (new.id, coalesce(new.raw_user_meta_data->>'display_name', 'مستخدم'));
+  insert into public.profiles (id, display_name, friend_code)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'display_name', 'مستخدم'),
+    upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8))
+  );
 
   insert into public.sessions (user_id, title, range_min, range_max)
   values (new.id, 'الجلسة الأولى', 1, 604)
@@ -540,110 +598,202 @@ from public.attempts
 where user_id = auth.uid()
 group by user_id, (created_at at time zone 'utc')::date;
 
--- 15) Progress sharing — lets a user generate a read-only link (no
---     account needed to view it) to their page-coverage heatmap and
---     daily-activity streak. Off by default; the owner enables it and
---     can regenerate the token at any time to revoke old links.
-create table if not exists public.progress_shares (
-  user_id uuid primary key references auth.users(id) on delete cascade,
-  token uuid not null default gen_random_uuid(),
-  enabled boolean not null default false,
-  updated_at timestamptz not null default now()
+-- 15) Friend system — replaces the earlier link-token progress
+--     sharing entirely. A user shares their friend_code (see
+--     profiles above) out of band; once two users accept each
+--     other, either can view the other's full profile (heatmap,
+--     streak, achievements, and session list) via get_friend_profile()
+--     below. Clean up the old sharing objects first, in case this is
+--     being re-run over an installation that had them.
+drop function if exists public.get_shared_progress(uuid);
+drop function if exists public.regenerate_share_token();
+drop function if exists public.set_share_enabled(boolean);
+drop table if exists public.progress_shares;
+
+create table if not exists public.friend_requests (
+  id bigint generated always as identity primary key,
+  from_user_id uuid not null references auth.users(id) on delete cascade,
+  to_user_id uuid not null references auth.users(id) on delete cascade,
+  status text not null default 'pending' check (status in ('pending', 'accepted', 'declined')),
+  created_at timestamptz not null default now(),
+  responded_at timestamptz,
+  constraint friend_requests_no_self check (from_user_id <> to_user_id),
+  constraint friend_requests_unique_pair unique (from_user_id, to_user_id)
 );
 
-alter table public.progress_shares enable row level security;
+alter table public.friend_requests enable row level security;
 
--- Only the owner can ever read their own row (which includes the
--- token) via the normal client — a visitor never queries this table
--- directly, only through get_shared_progress() below, which checks
--- the token itself rather than relying on RLS. No insert/update
--- policy is needed: all writes go through the security-definer RPCs
--- below, each of which pins its write to auth.uid() internally.
-drop policy if exists "Users view their own share settings" on public.progress_shares;
-create policy "Users view their own share settings"
-  on public.progress_shares for select
-  using (auth.uid() = user_id);
+-- Read-only for the two people involved — every write (send, accept/
+-- decline, remove) goes through a security-definer RPC below instead,
+-- so there's no insert/update/delete policy at all.
+drop policy if exists "Users view requests involving them" on public.friend_requests;
+create policy "Users view requests involving them"
+  on public.friend_requests for select
+  using (auth.uid() = from_user_id or auth.uid() = to_user_id);
 
-create or replace function public.set_share_enabled(p_enabled boolean)
-returns public.progress_shares
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_row public.progress_shares;
-begin
-  insert into public.progress_shares (user_id, enabled)
-  values (auth.uid(), p_enabled)
-  on conflict (user_id) do update set enabled = p_enabled, updated_at = now();
-
-  select * into v_row from public.progress_shares where user_id = auth.uid();
-  return v_row;
-end;
-$$;
-
-grant execute on function public.set_share_enabled(boolean) to authenticated;
-
-create or replace function public.regenerate_share_token()
-returns uuid
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_token uuid;
-begin
-  update public.progress_shares
-  set token = gen_random_uuid(), updated_at = now()
-  where user_id = auth.uid()
-  returning token into v_token;
-
-  if v_token is null then
-    insert into public.progress_shares (user_id)
-    values (auth.uid())
-    returning token into v_token;
-  end if;
-
-  return v_token;
-end;
-$$;
-
-grant execute on function public.regenerate_share_token() to authenticated;
-
--- Callable by anyone (anon included) — the token itself IS the
--- access control, checked against enabled = true. Returns null if
--- the token is wrong, unknown, or sharing has been turned off, so
--- the client can distinguish "no such link" from "empty progress".
-create or replace function public.get_shared_progress(p_token uuid)
+-- Looks up the target by friend_code and creates a pending request —
+-- or, if the target already sent *us* a pending request, accepts it
+-- immediately instead (mutual add = instant friend). Retrying after a
+-- decline re-opens that same request rather than erroring forever.
+create or replace function public.send_friend_request(p_friend_code text)
 returns jsonb
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  v_user_id uuid;
+  v_uid uuid := auth.uid();
+  v_target uuid;
+  v_reverse_pending bigint;
+  v_existing record;
+begin
+  select id into v_target from public.profiles where friend_code = upper(trim(p_friend_code));
+
+  if v_target is null then
+    return jsonb_build_object('ok', false, 'error', 'not_found');
+  end if;
+  if v_target = v_uid then
+    return jsonb_build_object('ok', false, 'error', 'self');
+  end if;
+
+  select id into v_reverse_pending from public.friend_requests
+    where from_user_id = v_target and to_user_id = v_uid and status = 'pending';
+  if v_reverse_pending is not null then
+    update public.friend_requests set status = 'accepted', responded_at = now() where id = v_reverse_pending;
+    return jsonb_build_object('ok', true, 'status', 'accepted');
+  end if;
+
+  select * into v_existing from public.friend_requests
+    where from_user_id = v_uid and to_user_id = v_target;
+
+  if found then
+    if v_existing.status = 'declined' then
+      update public.friend_requests set status = 'pending', created_at = now(), responded_at = null
+        where id = v_existing.id;
+      return jsonb_build_object('ok', true, 'status', 'pending');
+    end if;
+    return jsonb_build_object('ok', false, 'error', 'already_' || v_existing.status);
+  end if;
+
+  if exists (
+    select 1 from public.friend_requests
+    where from_user_id = v_target and to_user_id = v_uid and status = 'accepted'
+  ) then
+    return jsonb_build_object('ok', false, 'error', 'already_accepted');
+  end if;
+
+  insert into public.friend_requests (from_user_id, to_user_id) values (v_uid, v_target);
+  return jsonb_build_object('ok', true, 'status', 'pending');
+end;
+$$;
+
+grant execute on function public.send_friend_request(text) to authenticated;
+
+create or replace function public.respond_friend_request(p_request_id bigint, p_accept boolean)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.friend_requests
+  set status = case when p_accept then 'accepted' else 'declined' end,
+      responded_at = now()
+  where id = p_request_id and to_user_id = auth.uid() and status = 'pending';
+
+  return found;
+end;
+$$;
+
+grant execute on function public.respond_friend_request(bigint, boolean) to authenticated;
+
+create or replace function public.remove_friend(p_other_user_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from public.friend_requests
+  where status = 'accepted'
+    and ((from_user_id = auth.uid() and to_user_id = p_other_user_id)
+      or (from_user_id = p_other_user_id and to_user_id = auth.uid()));
+  return found;
+end;
+$$;
+
+grant execute on function public.remove_friend(uuid) to authenticated;
+
+-- Self-scoped views (same "runs with owner privileges, so the
+-- auth.uid() filter has to be explicit" pattern as session_summary).
+create or replace view public.my_incoming_friend_requests as
+select fr.id, fr.from_user_id, p.display_name as from_display_name, fr.created_at
+from public.friend_requests fr
+join public.profiles p on p.id = fr.from_user_id
+where fr.to_user_id = auth.uid() and fr.status = 'pending';
+
+create or replace view public.my_outgoing_friend_requests as
+select fr.id, fr.to_user_id, p.display_name as to_display_name, fr.created_at
+from public.friend_requests fr
+join public.profiles p on p.id = fr.to_user_id
+where fr.from_user_id = auth.uid() and fr.status = 'pending';
+
+create or replace view public.my_friends as
+select
+  case when fr.from_user_id = auth.uid() then fr.to_user_id else fr.from_user_id end as friend_user_id,
+  p.display_name as friend_display_name,
+  fr.responded_at as friends_since
+from public.friend_requests fr
+join public.profiles p
+  on p.id = (case when fr.from_user_id = auth.uid() then fr.to_user_id else fr.from_user_id end)
+where fr.status = 'accepted' and (fr.from_user_id = auth.uid() or fr.to_user_id = auth.uid());
+
+-- The full profile bundle — heatmap data, daily activity, earned
+-- achievement codes, and the friend's session list (title, range,
+-- totals; NOT limited to publicly-leaderboarded sessions, since an
+-- accepted friend is a trusted viewer, unlike the old anonymous link).
+-- Returns null if the caller and p_user_id aren't actually friends —
+-- checked explicitly since this is security definer and bypasses RLS.
+create or replace function public.get_friend_profile(p_user_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_is_friend boolean;
   v_display_name text;
   v_xp int;
   v_page_stats jsonb;
   v_daily jsonb;
+  v_sessions jsonb;
+  v_earned jsonb;
 begin
-  select user_id into v_user_id
-  from public.progress_shares
-  where token = p_token and enabled = true;
-
-  if v_user_id is null then
+  if v_uid is null or p_user_id is null then
     return null;
   end if;
 
-  select display_name into v_display_name from public.profiles where id = v_user_id;
-  select xp into v_xp from public.user_stats where user_id = v_user_id;
+  select exists(
+    select 1 from public.friend_requests
+    where status = 'accepted'
+      and ((from_user_id = v_uid and to_user_id = p_user_id)
+        or (from_user_id = p_user_id and to_user_id = v_uid))
+  ) into v_is_friend;
+
+  if not v_is_friend then
+    return null;
+  end if;
+
+  select display_name into v_display_name from public.profiles where id = p_user_id;
+  select xp into v_xp from public.user_stats where user_id = p_user_id;
 
   select coalesce(jsonb_agg(jsonb_build_object('page', page, 'total', total_answers, 'correct', total_correct)), '[]'::jsonb)
     into v_page_stats
   from (
     select page, count(*) as total_answers, count(*) filter (where is_correct) as total_correct
     from public.attempts
-    where user_id = v_user_id and page is not null
+    where user_id = p_user_id and page is not null
     group by page
   ) p;
 
@@ -652,20 +802,40 @@ begin
   from (
     select (created_at at time zone 'utc')::date as activity_date, count(*) as total_answers
     from public.attempts
-    where user_id = v_user_id
+    where user_id = p_user_id
     group by (created_at at time zone 'utc')::date
   ) d;
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+      'title', s.title, 'range_min', s.range_min, 'range_max', s.range_max,
+      'is_public', s.is_public, 'created_at', s.created_at,
+      'total_answers', coalesce(a.total_answers, 0), 'total_correct', coalesce(a.total_correct, 0)
+    ) order by s.created_at desc), '[]'::jsonb)
+    into v_sessions
+  from public.sessions s
+  left join (
+    select session_id, count(*) as total_answers, count(*) filter (where is_correct) as total_correct
+    from public.attempts
+    where session_id is not null
+    group by session_id
+  ) a on a.session_id = s.id
+  where s.user_id = p_user_id;
+
+  select coalesce(jsonb_agg(ua.code), '[]'::jsonb) into v_earned
+  from public.user_achievements ua where ua.user_id = p_user_id;
 
   return jsonb_build_object(
     'display_name', coalesce(v_display_name, 'مستخدم'),
     'xp', coalesce(v_xp, 0),
     'page_stats', v_page_stats,
-    'daily_activity', v_daily
+    'daily_activity', v_daily,
+    'sessions', v_sessions,
+    'earned_achievements', v_earned
   );
 end;
 $$;
 
-grant execute on function public.get_shared_progress(uuid) to anon, authenticated;
+grant execute on function public.get_friend_profile(uuid) to authenticated;
 
 -- ============================================================
 -- Done. Next steps:

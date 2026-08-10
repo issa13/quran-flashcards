@@ -141,6 +141,19 @@ body::before {
   gap: 8px;
 }
 
+.topbar-session-name {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--accent-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 6px;
+}
+
 .menu-toggle-btn {
   width: 42px;
   height: 42px;
@@ -1092,22 +1105,54 @@ select:focus, input:focus {
   color: var(--accent-text);
 }
 
-.share-section {
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px dashed rgba(var(--gold-rgb), 0.35);
-}
-
-.share-link-row {
+.friend-code-row,
+.friend-add-row {
   margin-top: 10px;
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
 }
-.share-link-row input {
+.friend-code-row input,
+.friend-add-row input {
   flex: 1;
   min-width: 0;
   font-size: 12px;
+}
+
+.friend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.friend-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid rgba(var(--ink-rgb), 0.1);
+  background: var(--card);
+  flex-wrap: wrap;
+}
+
+.friend-list-name {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.friend-list-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.friend-list-status {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
 }
 
 /* -------- Achievement toast -------- */

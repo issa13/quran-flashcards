@@ -58,6 +58,8 @@ const customRangeRow = document.getElementById("customRangeRow");
 const customMinEl = document.getElementById("customMin");
 const customMaxEl = document.getElementById("customMax");
 
+const topbarSessionName = document.getElementById("topbarSessionName");
+
 // Signed-in-only fixed range display
 const sessionRangeRow = document.getElementById("sessionRangeRow");
 const sessionRangeDisplay = document.getElementById("sessionRangeDisplay");
@@ -85,6 +87,9 @@ const ACHIEVEMENT_INFO = {
   streak_25: { icon: "⚡", title: "سلسلة 25 متتالية" },
   perfect_session: { icon: "🏆", title: "جلسة مثالية" },
   wide_coverage_500: { icon: "🗺️", title: "مسافر في القرآن" },
+  streak_days_3: { icon: "📅", title: "نشاط 3 أيام متتالية" },
+  streak_days_7: { icon: "🗓️", title: "أسبوع كامل" },
+  streak_days_30: { icon: "🌙", title: "شهر كامل" },
 };
 
 // -------- levels (lifetime, account-wide) --------
@@ -147,12 +152,23 @@ let currentAudioEl = null;
 let activeSessionId = null;
 let activeSessionRangeMin = null;
 let activeSessionRangeMax = null;
+let activeSessionTitle = null;
 function getActiveSessionId() { return activeSessionId; }
-function syncActiveSessionId(id, rangeMin, rangeMax) {
+function syncActiveSessionId(id, rangeMin, rangeMax, title) {
   activeSessionId = id;
   activeSessionRangeMin = rangeMin ?? null;
   activeSessionRangeMax = rangeMax ?? null;
+  activeSessionTitle = title ?? null;
+  setTopbarSessionName(activeSessionTitle);
   resetMistakeReview();
+}
+
+// Called whenever the active session's own title changes (renaming it
+// from the stats modal) so the topbar reflects it immediately.
+function setActiveSessionTitleIfMatches(sessionId, title) {
+  if (sessionId !== activeSessionId) return;
+  activeSessionTitle = title;
+  setTopbarSessionName(title);
 }
 
 // Mistake-review mode (signed-in users only) — when active, new
@@ -320,12 +336,17 @@ function setActiveRangeDisplay(minP, maxP) {
   sessionRangeDisplay.textContent = (minP != null && maxP != null) ? `${minP}–${maxP}` : "—";
 }
 
+function setTopbarSessionName(title) {
+  topbarSessionName.textContent = title || "";
+}
+
 function showGuestRangeUI() {
   guestRangeRow.style.display = "flex";
   showHideCustomRange();
   sessionRangeRow.style.display = "none";
   mistakeReviewRow.style.display = "none";
   resetMistakeReview();
+  setTopbarSessionName("");
 }
 
 function showSessionRangeUI(minP, maxP) {
@@ -1204,11 +1225,14 @@ if (typeof onAuthChange === "function") {
       activeSessionId = active?.id ?? null;
       activeSessionRangeMin = active?.rangeMin ?? null;
       activeSessionRangeMax = active?.rangeMax ?? null;
+      activeSessionTitle = active?.title ?? null;
       showSessionRangeUI(activeSessionRangeMin, activeSessionRangeMax);
+      setTopbarSessionName(activeSessionTitle);
     } else {
       activeSessionId = null;
       activeSessionRangeMin = null;
       activeSessionRangeMax = null;
+      activeSessionTitle = null;
       showGuestRangeUI();
     }
     await refreshQuestionTypeAvailability();
