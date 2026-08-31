@@ -26,9 +26,6 @@ const authSuccessNotice = document.getElementById("authSuccessNotice");
 const authSuccessText = document.getElementById("authSuccessText");
 const authSuccessOkBtn = document.getElementById("authSuccessOkBtn");
 
-const statsModal = document.getElementById("statsModal");
-const statsOpenBtn = document.getElementById("statsOpenBtn");
-const statsCloseBtn = document.getElementById("statsCloseBtn");
 const statsBody = document.getElementById("statsBody");
 const sessionChips = document.getElementById("sessionChips");
 const sessionActions = document.getElementById("sessionActions");
@@ -46,19 +43,8 @@ const newSessionCustomMin = document.getElementById("newSessionCustomMin");
 const newSessionCustomMax = document.getElementById("newSessionCustomMax");
 const createSessionSubmitBtn = document.getElementById("createSessionSubmitBtn");
 
-const leaderboardModal = document.getElementById("leaderboardModal");
-const leaderboardOpenBtn = document.getElementById("leaderboardOpenBtn");
-const leaderboardCloseBtn = document.getElementById("leaderboardCloseBtn");
 const leaderboardBody = document.getElementById("leaderboardBody");
-
-const achievementsModal = document.getElementById("achievementsModal");
-const achievementsOpenBtn = document.getElementById("achievementsOpenBtn");
-const achievementsCloseBtn = document.getElementById("achievementsCloseBtn");
 const achievementsBody = document.getElementById("achievementsBody");
-
-const progressModal = document.getElementById("progressModal");
-const progressOpenBtn = document.getElementById("progressOpenBtn");
-const progressCloseBtn = document.getElementById("progressCloseBtn");
 const progressBody = document.getElementById("progressBody");
 
 const logoutBtn = document.getElementById("logoutBtn");
@@ -90,36 +76,41 @@ themeToggleBtn.addEventListener("click", () => {
 
 setThemeButtonLabel();
 
-// -------- side menu (drawer) --------
-const menuToggleBtn = document.getElementById("menuToggleBtn");
-const sideMenu = document.getElementById("sideMenu");
-const sideMenuOverlay = document.getElementById("sideMenuOverlay");
-const sideMenuCloseBtn = document.getElementById("sideMenuCloseBtn");
+// -------- bottom nav (replaces the old side-menu drawer) --------
+// Tapping a tab swaps which #view-* element is visible — no popups.
+// Each tab (other than "home") lazily loads its data the moment it
+// becomes visible, same as the old modals did on open.
+const bottomNav = document.getElementById("bottomNav");
+const bottomNavButtons = Array.from(bottomNav.querySelectorAll(".bottom-nav-btn"));
+const appViews = {
+  home: document.getElementById("view-home"),
+  stats: document.getElementById("view-stats"),
+  achievements: document.getElementById("view-achievements"),
+  progress: document.getElementById("view-progress"),
+  friends: document.getElementById("view-friends"),
+  leaderboard: document.getElementById("view-leaderboard"),
+};
 
-function openSideMenu() {
-  sideMenu.classList.add("open");
-  sideMenuOverlay.classList.add("open");
+function switchView(name) {
+  if (!appViews[name]) return;
+
+  Object.entries(appViews).forEach(([key, el]) => el.classList.toggle("active", key === name));
+  bottomNavButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.view === name));
+
+  if (name === "stats") refreshSessionsAndShow(null); // null = default to active session
+  else if (name === "achievements") loadAchievementsView();
+  else if (name === "progress") loadProgressView();
+  else if (name === "friends") { showFriendsListSection(); loadFriendsModal(); }
+  else if (name === "leaderboard") loadLeaderboardView();
 }
-function closeSideMenu() {
-  sideMenu.classList.remove("open");
-  sideMenuOverlay.classList.remove("open");
-}
 
-menuToggleBtn.addEventListener("click", openSideMenu);
-sideMenuCloseBtn.addEventListener("click", closeSideMenu);
-sideMenuOverlay.addEventListener("click", closeSideMenu);
-
-// Any button inside the drawer (stats/achievements/progress/leaderboard/
-// login/logout) closes the drawer too, so picking an action doesn't
-// leave it hanging open behind the modal it just opened.
-sideMenu.addEventListener("click", (e) => {
-  const btn = e.target.closest("button");
-  if (btn && btn.id !== "sideMenuCloseBtn") closeSideMenu();
+bottomNavButtons.forEach((btn) => {
+  btn.addEventListener("click", () => switchView(btn.dataset.view));
 });
 
 let authMode = "login"; // or "signup"
 let mySessions = [];          // cached list from session_summary
-let selectedSessionId = null; // which session is shown in the stats modal
+let selectedSessionId = null; // which session is shown in the stats view
 
 function showModal(el) { el.style.display = "flex"; }
 function hideModal(el) { el.style.display = "none"; }
@@ -273,14 +264,9 @@ onAuthChange(async (user) => {
   }
 });
 
-// -------- stats modal (sessions) --------
-statsOpenBtn.addEventListener("click", async () => {
-  showModal(statsModal);
-  await refreshSessionsAndShow(null); // null = default to active session
-});
-
-statsCloseBtn.addEventListener("click", () => hideModal(statsModal));
-statsModal.addEventListener("click", (e) => { if (e.target === statsModal) hideModal(statsModal); });
+// -------- stats view (sessions) --------
+// Opening is handled by switchView("stats") in the bottom-nav wiring
+// above, which calls refreshSessionsAndShow(null) itself.
 
 // -------- create session modal (name + fixed page range, together) --------
 function showHideNewSessionCustomRange() {
@@ -596,15 +582,12 @@ function fairScore(row) {
   return accuracyScore * (0.65 + 0.35 * rangeFactor);
 }
 
-leaderboardOpenBtn.addEventListener("click", async () => {
-  showModal(leaderboardModal);
+// Called by switchView("leaderboard") when that tab is opened.
+async function loadLeaderboardView() {
   leaderboardBody.innerHTML = '<div class="status">جاري التحميل...</div>';
   const rows = await fetchSessionLeaderboard();
   leaderboardBody.innerHTML = renderLeaderboardHtml(rows);
-});
-
-leaderboardCloseBtn.addEventListener("click", () => hideModal(leaderboardModal));
-leaderboardModal.addEventListener("click", (e) => { if (e.target === leaderboardModal) hideModal(leaderboardModal); });
+}
 
 function renderLeaderboardHtml(rows) {
   if (!rows || rows.length === 0) {
@@ -638,11 +621,11 @@ function escapeHtml(str) {
   }[c]));
 }
 
-// -------- achievements modal (lifetime level + badges) --------
+// -------- achievements view (lifetime level + badges) --------
 function clampPct(n) { return Math.max(0, Math.min(100, n)); }
 
-achievementsOpenBtn.addEventListener("click", async () => {
-  showModal(achievementsModal);
+// Called by switchView("achievements") when that tab is opened.
+async function loadAchievementsView() {
   achievementsBody.innerHTML = '<div class="status">جاري التحميل...</div>';
 
   const [stats, catalog, earned] = await Promise.all([
@@ -670,12 +653,9 @@ achievementsOpenBtn.addEventListener("click", async () => {
     </div>`;
 
   achievementsBody.innerHTML = summaryHtml + buildBadgesGridHtml(catalog, earnedCodes);
-});
+}
 
-achievementsCloseBtn.addEventListener("click", () => hideModal(achievementsModal));
-achievementsModal.addEventListener("click", (e) => { if (e.target === achievementsModal) hideModal(achievementsModal); });
-
-// Shared by the achievements modal and the friend-profile modal.
+// Shared by the achievements view and the friend-profile view.
 function buildBadgesGridHtml(catalog, earnedCodes) {
   const badgesHtml = (catalog || [])
     .map((b) => {
@@ -767,7 +747,7 @@ function progressSummaryHtml(pageStats, extra) {
     </div>`;
 }
 
-// -------- progress modal (own account) --------
+// -------- progress view (own account) --------
 function buildProgressBodyHtml() {
   return `
     <div id="progressSummary"></div>
@@ -778,8 +758,8 @@ function buildProgressBodyHtml() {
     <div id="myStreakNumbers" class="streak-numbers"></div>`;
 }
 
-progressOpenBtn.addEventListener("click", async () => {
-  showModal(progressModal);
+// Called by switchView("progress") when that tab is opened.
+async function loadProgressView() {
   progressBody.innerHTML = '<div class="status">جاري التحميل...</div>';
 
   const [pageStats, dailyActivity] = await Promise.all([
@@ -791,16 +771,22 @@ progressOpenBtn.addEventListener("click", async () => {
   document.getElementById("progressSummary").innerHTML = progressSummaryHtml(pageStats, "");
   renderHeatmapInto(document.getElementById("myHeatmap"), pageStats);
   renderStreakInto(document.getElementById("myStreakStrip"), document.getElementById("myStreakNumbers"), dailyActivity);
-});
+}
 
-progressCloseBtn.addEventListener("click", () => hideModal(progressModal));
-progressModal.addEventListener("click", (e) => { if (e.target === progressModal) hideModal(progressModal); });
-
-// -------- friends modal: my code, add a friend, requests, friend list --------
-const friendsModal = document.getElementById("friendsModal");
-const friendsOpenBtn = document.getElementById("friendsOpenBtn");
-const friendsCloseBtn = document.getElementById("friendsCloseBtn");
+// -------- friends view: my code, add a friend, requests, friend list --------
 const friendsBody = document.getElementById("friendsBody");
+const friendsListSection = document.getElementById("friendsListSection");
+const friendProfileSection = document.getElementById("friendProfileSection");
+const friendProfileBackBtn = document.getElementById("friendProfileBackBtn");
+
+// Shows the friend list "page" of the friends tab (as opposed to a
+// single friend's profile "page" — see openFriendProfile() below).
+function showFriendsListSection() {
+  friendProfileSection.style.display = "none";
+  friendsListSection.style.display = "block";
+}
+
+friendProfileBackBtn.addEventListener("click", showFriendsListSection);
 
 function friendRequestErrorMessage(err) {
   switch (err) {
@@ -971,21 +957,17 @@ async function loadFriendsModal() {
   }
 }
 
-friendsOpenBtn.addEventListener("click", async () => {
-  showModal(friendsModal);
-  await loadFriendsModal();
-});
-friendsCloseBtn.addEventListener("click", () => hideModal(friendsModal));
-friendsModal.addEventListener("click", (e) => { if (e.target === friendsModal) hideModal(friendsModal); });
+// Opening the friends tab itself is handled by switchView("friends")
+// in the bottom-nav wiring above.
 
-// -------- friend profile modal --------
-const friendProfileModal = document.getElementById("friendProfileModal");
-const friendProfileCloseBtn = document.getElementById("friendProfileCloseBtn");
+// -------- friend profile "page" (was its own modal; now a second
+// page within the friends tab — see friendProfileSection) --------
 const friendProfileTitle = document.getElementById("friendProfileTitle");
 const friendProfileBody = document.getElementById("friendProfileBody");
 
 async function openFriendProfile(friendUserId) {
-  showModal(friendProfileModal);
+  friendsListSection.style.display = "none";
+  friendProfileSection.style.display = "block";
   friendProfileTitle.textContent = "الملف الشخصي";
   friendProfileBody.innerHTML = '<div class="status">جاري التحميل...</div>';
 
@@ -1033,9 +1015,6 @@ async function openFriendProfile(friendUserId) {
   renderHeatmapInto(document.getElementById("friendHeatmap"), pageStats);
   renderStreakInto(document.getElementById("friendStreakStrip"), document.getElementById("friendStreakNumbers"), dailyActivity);
 }
-
-friendProfileCloseBtn.addEventListener("click", () => hideModal(friendProfileModal));
-friendProfileModal.addEventListener("click", (e) => { if (e.target === friendProfileModal) hideModal(friendProfileModal); });
 
 // Kick off auth
 initAuth();
