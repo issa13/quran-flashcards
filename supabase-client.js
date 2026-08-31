@@ -206,15 +206,21 @@ async function renameSession(sessionId, title) {
 // -------- attempts sync --------
 // Uses the record_attempt() RPC (see supabase-schema.sql) so the
 // attempt insert, widening the session's stored page range, updating
-// lifetime XP/streak, and awarding any newly-earned badges all happen
-// in one atomic round trip. Returns { ok, newlyEarned, xp } — ok is
-// true only on confirmed success (app.js uses it to know when it's
-// safe to lock in the session's page range), newlyEarned is the array
-// of achievement codes granted by THIS call (usually empty), and xp
-// is the user's updated lifetime XP (used to refresh the level badge
-// live, without a second round trip).
-async function recordAttempt({ questionType, page, isCorrect, sessionId, rangeMin, rangeMax }) {
-  if (!sb || !currentUser) return { ok: false, newlyEarned: [], xp: null };
+// lifetime XP/streak (with a daily-streak XP multiplier + in-session
+// combo bonus baked in), and awarding any newly-earned badges
+// (including per-type mastery, per-juz completion, and time-of-day
+// badges) all happen in one atomic round trip. Returns
+// { ok, newlyEarned, xp, xpGained, currentStreak } — ok is true only
+// on confirmed success, newlyEarned is the array of achievement codes
+// granted by THIS call (usually empty), xp is the user's updated
+// lifetime XP, xpGained is how much XP THIS call awarded (for the
+// "+N XP" popup), and currentStreak is the live consecutive-correct
+// count (for the combo/fire indicator) — all without a second round
+// trip. p_local_hour/p_is_weekend are read from the browser's own
+// clock (see app.js), not the server's UTC one, so the night_owl/
+// early_bird/weekend_warrior badges reflect the person's actual time.
+async function recordAttempt({ questionType, page, isCorrect, sessionId, rangeMin, rangeMax, localHour, isWeekend }) {
+  if (!sb || !currentUser) return { ok: false, newlyEarned: [], xp: null, xpGained: 0, currentStreak: 0 };
   const { data, error } = await sb.rpc("record_attempt", {
     p_session_id: sessionId || null,
     p_question_type: questionType,
@@ -222,15 +228,19 @@ async function recordAttempt({ questionType, page, isCorrect, sessionId, rangeMi
     p_is_correct: isCorrect,
     p_range_min: rangeMin ?? null,
     p_range_max: rangeMax ?? null,
+    p_local_hour: localHour ?? null,
+    p_is_weekend: isWeekend ?? null,
   });
   if (error) {
     console.error("recordAttempt error", error);
-    return { ok: false, newlyEarned: [], xp: null };
+    return { ok: false, newlyEarned: [], xp: null, xpGained: 0, currentStreak: 0 };
   }
   return {
     ok: true,
     newlyEarned: Array.isArray(data?.earned) ? data.earned : [],
     xp: typeof data?.xp === "number" ? data.xp : null,
+    xpGained: typeof data?.xpGained === "number" ? data.xpGained : 0,
+    currentStreak: typeof data?.currentStreak === "number" ? data.currentStreak : 0,
   };
 }
 

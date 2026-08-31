@@ -69,6 +69,7 @@ const mistakeReviewToggle = document.getElementById("mistakeReviewToggle");
 const mistakeReviewHint = document.getElementById("mistakeReviewHint");
 
 const scoreBox = document.getElementById("scoreBox");
+const comboBox = document.getElementById("comboBox");
 const cardHelp = document.getElementById("cardHelp");
 const playAudioBtn = document.getElementById("playAudioBtn");
 
@@ -103,6 +104,29 @@ function xpForLevel(level) {
   return Math.pow(Math.max(1, level) - 1, 2) * 25;
 }
 
+// Cosmetic rank name shown alongside the level number (topbar badge,
+// achievements view, leaderboard). Purely client-side — derived from
+// the same level number everything else already uses, so it never
+// needs its own XP thresholds to stay in sync.
+const LEVEL_TITLES = [
+  { min: 1, title: "مبتدئ" },
+  { min: 2, title: "طالب علم" },
+  { min: 5, title: "مثابر" },
+  { min: 8, title: "حافظ صغير" },
+  { min: 12, title: "متقن" },
+  { min: 17, title: "بارع" },
+  { min: 23, title: "خبير المراجعة" },
+  { min: 31, title: "أستاذ" },
+  { min: 41, title: "أسطورة الحفظ" },
+];
+function levelTitle(level) {
+  let title = LEVEL_TITLES[0].title;
+  for (const tier of LEVEL_TITLES) {
+    if (level >= tier.min) title = tier.title;
+  }
+  return title;
+}
+
 // Score
 const GUEST_SCORE_KEY = "qf_guest_score";
 let total = 0;
@@ -130,6 +154,42 @@ function saveGuestScore() {
 let hasActiveCard = false;
 let answeredThisCard = false;
 let currentCorrectIndex = -1;
+
+// -------- combo / fire indicator --------
+// Purely a client-side, in-browser-session counter — consecutive
+// correct answers *right now*, reset by any wrong answer or a page
+// reload. Distinct from user_stats.current_streak in the DB (which is
+// lifetime and drives the streak_10/streak_25 badges) — this one is
+// just for the live "you're on fire" feedback while playing, so it
+// works identically for guests and signed-in users.
+let sessionCombo = 0;
+
+function updateComboBox() {
+  if (sessionCombo < 3) {
+    comboBox.style.display = "none";
+    return;
+  }
+  const flames = sessionCombo >= 15 ? "🔥🔥🔥" : sessionCombo >= 8 ? "🔥🔥" : "🔥";
+  comboBox.textContent = `${flames} سلسلة ${sessionCombo}`;
+  comboBox.style.display = "inline-flex";
+  comboBox.classList.remove("pulse");
+  void comboBox.offsetWidth;
+  comboBox.classList.add("pulse");
+}
+
+// Small floating "+N XP" popup near the score box, shown when a
+// signed-in user's answer earns XP (base 10 × the daily-streak
+// multiplier, plus a combo bonus every 5th correct in a row — see
+// record_attempt() in supabase-schema.sql).
+function showXpPopup(amount) {
+  if (!amount) return;
+  const el = document.createElement("div");
+  el.className = "xp-popup";
+  el.textContent = `+${amount} XP`;
+  scoreBox.insertAdjacentElement("afterend", el);
+  requestAnimationFrame(() => el.classList.add("rise"));
+  setTimeout(() => el.remove(), 1100);
+}
 
 // Current question context (used for syncing attempts to Supabase)
 let currentQuestionType = null;
@@ -222,6 +282,8 @@ function updateScore() {
 function resetScore() {
   total = 0;
   correct = 0;
+  sessionCombo = 0;
+  updateComboBox();
   updateScore();
   saveGuestScore();
 }
@@ -949,6 +1011,9 @@ function finishQuestion(isCorrect) {
   total += 1;
   if (isCorrect) correct += 1;
 
+  sessionCombo = isCorrect ? sessionCombo + 1 : 0;
+  updateComboBox();
+
   updateScore();
   unlockGenerate();
 
@@ -975,6 +1040,13 @@ function finishQuestion(isCorrect) {
   }
 
   if (typeof recordAttempt === "function" && currentQuestionType) {
+    // Read from the browser's own clock (not UTC) so the
+    // night_owl/early_bird/weekend_warrior badges in
+    // record_attempt() reflect the person's actual local time.
+    const now = new Date();
+    const localHour = now.getHours();
+    const isWeekend = now.getDay() === 5 || now.getDay() === 6; // Fri/Sat
+
     recordAttempt({
       questionType: currentQuestionType,
       page: currentPage,
@@ -982,9 +1054,14 @@ function finishQuestion(isCorrect) {
       sessionId: activeSessionId,
       rangeMin: currentRangeMin,
       rangeMax: currentRangeMax,
+      localHour,
+      isWeekend,
     }).then((result) => {
       if (result?.ok && result.newlyEarned && result.newlyEarned.length) {
         showAchievementToasts(result.newlyEarned);
+      }
+      if (result?.ok && result.xpGained) {
+        showXpPopup(result.xpGained);
       }
       if (result?.ok && result.xp != null && typeof updateLevelBadge === "function") {
         updateLevelBadge(result.xp);

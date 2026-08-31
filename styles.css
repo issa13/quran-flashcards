@@ -397,6 +397,124 @@ body::before {
   100% { transform: scale(1); }
 }
 
+/* -------- Score + combo/fire indicator stack -------- */
+.score-combo-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  position: relative;
+}
+
+.combo-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 900;
+  font-size: 12px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ffcf7a, var(--gold));
+  border: 1.5px solid rgba(var(--gold-rgb), 0.5);
+  color: #3a2506;
+  white-space: nowrap;
+}
+.combo-box.pulse {
+  animation: comboPulse 0.45s var(--ease);
+}
+@keyframes comboPulse {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.18) rotate(-2deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+
+/* Small floating "+N XP" that rises and fades next to the score box */
+.xp-popup {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-weight: 900;
+  font-size: 13px;
+  color: var(--gold);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+  opacity: 0;
+  transform: translateY(0);
+  transition: opacity 0.9s ease-out, transform 0.9s ease-out;
+  pointer-events: none;
+  z-index: 5;
+}
+.xp-popup.rise {
+  opacity: 1;
+  transform: translateY(-26px);
+}
+
+/* -------- Level-up celebration overlay -------- */
+.level-up-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 19, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s var(--ease);
+}
+.level-up-overlay.show {
+  opacity: 1;
+  animation: levelUpFade 2.2s ease-in-out forwards;
+}
+@keyframes levelUpFade {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.level-up-burst {
+  text-align: center;
+  padding: 28px 36px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(160deg, var(--card), var(--card-alt));
+  border: 1.5px solid rgba(var(--gold-rgb), 0.4);
+  box-shadow: var(--shadow-pop);
+  transform: scale(0.8);
+  animation: levelUpPop 2.2s var(--ease) forwards;
+}
+@keyframes levelUpPop {
+  0% { transform: scale(0.6); }
+  15% { transform: scale(1.08); }
+  30% { transform: scale(1); }
+  85% { transform: scale(1); }
+  100% { transform: scale(0.9); }
+}
+
+.level-up-emoji {
+  font-size: 44px;
+  animation: levelUpSpin 1.2s ease-in-out;
+}
+@keyframes levelUpSpin {
+  0% { transform: rotate(-15deg) scale(0.7); }
+  50% { transform: rotate(10deg) scale(1.15); }
+  100% { transform: rotate(0) scale(1); }
+}
+
+.level-up-text {
+  margin-top: 8px;
+  font-family: 'Aref Ruqaa', serif;
+  font-weight: 700;
+  font-size: 26px;
+  color: var(--accent-text);
+}
+
+.level-up-title {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--gold);
+}
+
 .row {
   display: flex;
   gap: 10px;

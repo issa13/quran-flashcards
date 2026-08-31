@@ -54,7 +54,10 @@
               <span></span><i></i><span></span>
             </div>
           </div>
-          <div id="scoreBox" class="score">النتيجة: 0 / 0</div>
+          <div class="score-combo-wrap">
+            <div id="scoreBox" class="score">النتيجة: 0 / 0</div>
+            <div id="comboBox" class="combo-box" style="display:none;"></div>
+          </div>
         </div>
 
         <!-- Row 1: نوع السؤال + المؤقت -->
@@ -304,6 +307,17 @@
       </div>
     </div>
 
+  </div>
+
+  <!-- Level-up celebration overlay (auth-ui.js shows/hides this briefly
+       whenever the level badge ticks up — no popup dialog, just a
+       full-screen flourish that fades on its own). -->
+  <div id="levelUpOverlay" class="level-up-overlay" aria-hidden="true">
+    <div class="level-up-burst">
+      <div class="level-up-emoji">🎉</div>
+      <div class="level-up-text" id="levelUpText">المستوى 2</div>
+      <div class="level-up-title" id="levelUpTitle"></div>
+    </div>
   </div>
 
   <!-- ==================================================================

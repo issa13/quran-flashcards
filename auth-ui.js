@@ -236,13 +236,37 @@ function updateLevelBadge(xp) {
   const level = (typeof levelFromXp === "function") ? levelFromXp(xp || 0) : null;
   if (level == null) return;
 
-  userLevelBadge.textContent = `🎖️ المستوى ${level}`;
+  const title = (typeof levelTitle === "function") ? levelTitle(level) : "";
+  userLevelBadge.textContent = title ? `🎖️ المستوى ${level} · ${title}` : `🎖️ المستوى ${level}`;
   userLevelBadge.style.display = "inline-flex";
 
-  if (lastKnownLevel != null && level > lastKnownLevel && typeof showAchievementToast === "function") {
-    showAchievementToast({ icon: "🎖️", title: `وصلت إلى المستوى ${level}!` });
+  if (lastKnownLevel != null && level > lastKnownLevel) {
+    showLevelUpCelebration(level, title);
   }
   lastKnownLevel = level;
+}
+
+// Full-screen (but brief, non-blocking, self-dismissing) flourish for
+// leveling up — bigger moment than the small achievement toast, since
+// a level-up is rarer and represents sustained progress, not a single
+// milestone. Not a modal: no close button, nothing to interact with,
+// it just plays and fades.
+const levelUpOverlay = document.getElementById("levelUpOverlay");
+const levelUpText = document.getElementById("levelUpText");
+const levelUpTitleEl = document.getElementById("levelUpTitle");
+let levelUpTimer = null;
+
+function showLevelUpCelebration(level, title) {
+  if (!levelUpOverlay) return;
+  levelUpText.textContent = `🎖️ المستوى ${level}`;
+  levelUpTitleEl.textContent = title || "";
+
+  clearTimeout(levelUpTimer);
+  levelUpOverlay.classList.remove("show"); // restart the animation if one is already mid-flight
+  void levelUpOverlay.offsetWidth;
+  levelUpOverlay.classList.add("show");
+
+  levelUpTimer = setTimeout(() => levelUpOverlay.classList.remove("show"), 2200);
 }
 
 onAuthChange(async (user) => {
@@ -604,7 +628,7 @@ function renderLeaderboardHtml(rows) {
       const label = pageRangeLabel(r);
       const rangeLabel = label ? ` — ${label}` : "";
       const levelLabel = (typeof levelFromXp === "function" && r.owner_xp != null)
-        ? ` <span class="lb-level">(المستوى ${levelFromXp(r.owner_xp)})</span>`
+        ? ` <span class="lb-level">(المستوى ${levelFromXp(r.owner_xp)}${typeof levelTitle === "function" ? ` · ${levelTitle(levelFromXp(r.owner_xp))}` : ""})</span>`
         : "";
       return `
       <div class="stat-row leaderboard-row">
@@ -643,10 +667,11 @@ async function loadAchievementsView() {
     : 100;
 
   const earnedCodes = new Set((earned || []).map((e) => e.code));
+  const title = (typeof levelTitle === "function") ? levelTitle(level) : "";
 
   const summaryHtml = `
     <div class="level-summary">
-      <div class="level-summary-badge">🎖️ المستوى ${level}</div>
+      <div class="level-summary-badge">🎖️ المستوى ${level}${title ? ` · ${escapeHtml(title)}` : ""}</div>
       <div class="level-summary-xp">${xp} XP</div>
       <div class="level-progress-bar"><div class="level-progress-fill" style="width:${pct}%"></div></div>
       <div class="level-progress-caption">${Math.max(0, nextLevelStart - xp)} XP للمستوى التالي</div>
@@ -1001,7 +1026,7 @@ async function openFriendProfile(friendUserId) {
     : '<div class="status">لا توجد جلسات بعد.</div>';
 
   friendProfileBody.innerHTML = `
-    ${progressSummaryHtml(pageStats, level != null ? ` — المستوى ${level}` : "")}
+    ${progressSummaryHtml(pageStats, level != null ? ` — المستوى ${level}${typeof levelTitle === "function" ? ` · ${escapeHtml(levelTitle(level))}` : ""}` : "")}
     <div class="section-label">خريطة تغطية الصفحات</div>
     <div id="friendHeatmap" class="heatmap-grid"></div>
     <div class="section-label">النشاط اليومي (آخر 30 يومًا)</div>

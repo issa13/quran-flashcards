@@ -187,6 +187,108 @@ insert into public.achievements (code, title, description, icon, sort_order) val
   ('streak_days_30',     'شهر كامل',            'مارس التطبيق 30 يومًا متتاليًا',                              '🌙', 11)
 on conflict (code) do nothing;
 
+-- 5b) type_correct_counts: per-question-type lifetime correct counter
+-- (jsonb map like {"surah": 12, "juz": 4, ...}) — powers the
+-- per-type "mastery" badges inserted just below, without needing a
+-- separate table. Only ever written by record_attempt() (security
+-- definer), same as the rest of user_stats.
+alter table public.user_stats
+  add column if not exists type_correct_counts jsonb not null default '{}'::jsonb;
+
+-- 5c) Time-based badges. These use the *caller's local* hour/weekday
+-- (passed in via record_attempt()'s p_local_hour/p_is_weekend params)
+-- rather than the server's UTC clock, so "night owl" actually means
+-- the person's own midnight, not Supabase's.
+insert into public.achievements (code, title, description, icon, sort_order) values
+  ('night_owl',        'بومة الليل',    'أجب عن سؤال بين منتصف الليل والساعة 5 فجرًا بتوقيتك المحلي',   '🦉', 20),
+  ('early_bird',       'الطائر المبكر', 'أجب عن سؤال بين الساعة 4 و7 صباحًا بتوقيتك المحلي',            '🐦', 21),
+  ('weekend_warrior',  'محارب العطلة',  'أجب عن سؤال في يوم الجمعة أو السبت',                          '🎯', 22)
+on conflict (code) do nothing;
+
+-- 5d) Per-question-type mastery — 30 correct answers of one question
+-- type earns its own badge. Generated with a loop (mirroring app.js's
+-- getTypeLabel()) instead of 13 hand-typed rows, so it can't drift.
+do $$
+declare
+  v_types text[] := array['first','last','previous','surah','pageNumber','ayahCount',
+                           'nextPageFirst','prevPageFirst','pageEndToNextFirst',
+                           'pageStartToPrevLast','juz','ayahNumber','listenNext'];
+  v_labels text[] := array['خمن الآية الأولى بالصفحة','خمن الآية الأخيرة بالصفحة','خمن الآية السابقة',
+                            'خمن السورة','خمن رقم الصفحة','خمن عدد آيات الصفحة',
+                            'خمن أول آية بالصفحة التالية','خمن أول آية بالصفحة السابقة',
+                            'من آخر آية: خمن أول آية بالصفحة التالية','من أول آية: خمن آخر آية بالصفحة السابقة',
+                            'خمن الجزء','خمن رقم الآية بالسورة','استمع ثم خمن الآية التالية'];
+  i int;
+begin
+  for i in 1 .. array_length(v_types, 1) loop
+    insert into public.achievements (code, title, description, icon, sort_order)
+    values (
+      'type_master_' || v_types[i],
+      'خبير: ' || v_labels[i],
+      'أجب بشكل صحيح 30 مرة على أسئلة "' || v_labels[i] || '"',
+      '🎯',
+      30 + i
+    )
+    on conflict (code) do nothing;
+  end loop;
+end $$;
+
+-- 5e) Per-juz completion — one badge per juz (30 total), earned once
+-- every page in that juz has at least one correct answer across any
+-- session. record_attempt() below checks this incrementally, scoped
+-- to just the juz of the page just answered (never a full 30-juz scan).
+do $$
+declare
+  j int;
+begin
+  for j in 1 .. 30 loop
+    insert into public.achievements (code, title, description, icon, sort_order)
+    values (
+      'juz_complete_' || j,
+      'أتممتَ الجزء ' || j,
+      'أجب بشكل صحيح مرة واحدة على الأقل من كل صفحة في الجزء ' || j,
+      '📖',
+      60 + j
+    )
+    on conflict (code) do nothing;
+  end loop;
+end $$;
+
+-- 5f) juz_for_page() / juz_page_range(): the same standard Madinah
+-- Mushaf juz boundaries as JUZ_START_PAGE in app.js, in SQL form, so
+-- record_attempt() can work out "which juz is this page in, and is
+-- that juz now fully covered?" without hardcoding it inline.
+create or replace function public.juz_for_page(p_page int)
+returns int
+language sql
+immutable
+as $$
+  select count(*)::int
+  from unnest(array[1,22,42,62,82,102,121,142,162,182,
+                     201,222,242,262,282,302,322,342,362,382,
+                     402,422,442,462,482,502,522,542,562,582]) as start_page
+  where p_page >= start_page;
+$$;
+
+create or replace function public.juz_page_range(p_juz int)
+returns table(range_min int, range_max int)
+language sql
+immutable
+as $$
+  with starts as (
+    select juz_num, start_page
+    from unnest(
+      array[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30],
+      array[1,22,42,62,82,102,121,142,162,182,201,222,242,262,282,302,
+            322,342,362,382,402,422,442,462,482,502,522,542,562,582]
+    ) as t(juz_num, start_page)
+  )
+  select s.start_page,
+         coalesce((select st2.start_page - 1 from starts st2 where st2.juz_num = s.juz_num + 1), 604)
+  from starts s
+  where s.juz_num = p_juz;
+$$;
+
 create table if not exists public.user_achievements (
   user_id uuid not null references auth.users(id) on delete cascade,
   code text not null references public.achievements(code) on delete cascade,
@@ -204,15 +306,25 @@ create policy "Users view their own achievements"
 -- 6) record_attempt(): inserts the attempt, widens the session's
 --    range_min/range_max, updates lifetime XP/streak, and awards any
 --    newly-earned badges — all in one atomic call (see
---    supabase-client.js). Returns {earned: text[], xp: int} as jsonb —
---    "earned" are badge codes newly earned by THIS call, "xp" is the
---    user's updated lifetime XP — so the client can show a toast and
---    refresh the level badge without a second round trip. security
---    definer so it can write all these tables in one go, but every
---    write is still pinned to auth.uid() — a user can only ever
---    record or widen their own rows, and a p_session_id that isn't
---    actually theirs is silently ignored (see the ownership check
---    below) rather than trusted.
+--    supabase-client.js). Returns jsonb {earned, xp, xpGained,
+--    currentStreak} — "earned" are badge codes newly earned by THIS
+--    call, "xp" is updated lifetime XP, "xpGained" is how much XP
+--    this specific call awarded (base 10 × a same-day-streak
+--    multiplier, plus a flat combo bonus every 5th correct answer in
+--    a row), and "currentStreak" is the live consecutive-correct
+--    count — so the client can show a "+N XP" popup and a combo/fire
+--    indicator without a second round trip. security definer so it
+--    can write all these tables in one go, but every write is still
+--    pinned to auth.uid() — a user can only ever record or widen
+--    their own rows, and a p_session_id that isn't actually theirs is
+--    silently ignored (see the ownership check below) rather than
+--    trusted.
+--
+--    p_local_hour (0–23) and p_is_weekend are supplied by the client
+--    from its own local clock (see app.js) — used only for the
+--    night_owl/early_bird/weekend_warrior badges below, since the
+--    server's clock_timestamp() is UTC and wouldn't reflect the
+--    person's actual morning/evening/weekend.
 --
 --    Rate limited to one recorded attempt per 350ms per user (well
 --    under any realistic "read the question, tap a choice" pace) —
@@ -222,7 +334,8 @@ create policy "Users view their own achievements"
 --    genuine fast answer.
 --
 --    Dropped and recreated (not just "or replace") because its
---    return type changed (void → text[] → jsonb across revisions).
+--    return type changed (void → text[] → jsonb across revisions),
+--    and its signature just grew two new trailing params.
 drop function if exists public.record_attempt(bigint, text, int, boolean, int, int);
 
 create function public.record_attempt(
@@ -231,7 +344,9 @@ create function public.record_attempt(
   p_page int,
   p_is_correct boolean,
   p_range_min int default null,
-  p_range_max int default null
+  p_range_max int default null,
+  p_local_hour int default null,
+  p_is_weekend boolean default null
 )
 returns jsonb
 language plpgsql
@@ -242,12 +357,24 @@ declare
   v_uid uuid := auth.uid();
   v_xp int;
   v_last_attempt_at timestamptz;
+  v_old_streak int;
+  v_new_streak int;
   v_total_correct int;
   v_best_streak int;
+  v_current_streak int;
+  v_type_counts_json jsonb;
+  v_type_count int;
   v_session_total int;
   v_session_correct int;
   v_distinct_pages int;
   v_day_streak int;
+  v_xp_mult numeric;
+  v_combo_bonus int;
+  v_base_xp int;
+  v_xp_gain int;
+  v_juz int;
+  v_juz_min int;
+  v_juz_max int;
   v_code text;
   v_earned text[] := '{}';
   v_owns_session boolean;
@@ -267,11 +394,14 @@ begin
     end if;
   end if;
 
-  select xp, last_attempt_at into v_xp, v_last_attempt_at
+  select xp, last_attempt_at, current_streak into v_xp, v_last_attempt_at, v_old_streak
   from public.user_stats where user_id = v_uid;
 
   if v_last_attempt_at is not null and clock_timestamp() - v_last_attempt_at < interval '350 milliseconds' then
-    return jsonb_build_object('earned', '[]'::jsonb, 'xp', coalesce(v_xp, 0));
+    return jsonb_build_object(
+      'earned', '[]'::jsonb, 'xp', coalesce(v_xp, 0),
+      'xpGained', 0, 'currentStreak', coalesce(v_old_streak, 0)
+    );
   end if;
 
   insert into public.attempts (user_id, session_id, question_type, page, is_correct)
@@ -286,18 +416,56 @@ begin
     where id = p_session_id and user_id = v_uid;
   end if;
 
-  insert into public.user_stats (user_id, xp, total_correct, total_answers, current_streak, best_streak, last_attempt_at)
+  -- Current consecutive-day streak (including today, since the
+  -- insert above already recorded today's activity): classic
+  -- "gaps and islands" trick — d minus its row_number() is constant
+  -- across a run of consecutive dates, so the island containing
+  -- today's date has that many rows. Computed here (not just further
+  -- down for the streak_days_* badges) so it can also drive this
+  -- call's XP multiplier below.
+  with days as (
+    select distinct (created_at at time zone 'utc')::date as d
+    from public.attempts where user_id = v_uid
+  ),
+  grouped as (
+    select d, d - (row_number() over (order by d))::int as grp
+    from days
+  )
+  select count(*) into v_day_streak
+  from grouped
+  where grp = (select grp from grouped where d = (clock_timestamp() at time zone 'utc')::date);
+
+  -- XP: a flat 10 per correct answer, boosted by a same-day-streak
+  -- multiplier (rewards showing up daily — 3+ days = 1.25x, 7+ = 1.5x),
+  -- plus a flat "combo" bonus every 5th consecutive correct answer
+  -- in a row (current_streak resets to 0 on any wrong answer, so this
+  -- rewards a good run happening right now, on top of the daily one).
+  v_new_streak := case when p_is_correct then coalesce(v_old_streak, 0) + 1 else 0 end;
+  v_xp_mult := case
+    when coalesce(v_day_streak, 0) >= 7 then 1.5
+    when coalesce(v_day_streak, 0) >= 3 then 1.25
+    else 1
+  end;
+  v_base_xp := case when p_is_correct then round(10 * v_xp_mult)::int else 0 end;
+  v_combo_bonus := case when p_is_correct and v_new_streak > 0 and v_new_streak % 5 = 0 then 15 else 0 end;
+  v_xp_gain := v_base_xp + v_combo_bonus;
+
+  insert into public.user_stats (
+    user_id, xp, total_correct, total_answers, current_streak, best_streak,
+    last_attempt_at, type_correct_counts
+  )
   values (
     v_uid,
-    case when p_is_correct then 10 else 0 end,
+    v_xp_gain,
     case when p_is_correct then 1 else 0 end,
     1,
     case when p_is_correct then 1 else 0 end,
     case when p_is_correct then 1 else 0 end,
-    clock_timestamp()
+    clock_timestamp(),
+    case when p_is_correct then jsonb_build_object(p_question_type, 1) else '{}'::jsonb end
   )
   on conflict (user_id) do update set
-    xp = public.user_stats.xp + (case when p_is_correct then 10 else 0 end),
+    xp = public.user_stats.xp + v_xp_gain,
     total_correct = public.user_stats.total_correct + (case when p_is_correct then 1 else 0 end),
     total_answers = public.user_stats.total_answers + 1,
     current_streak = case when p_is_correct then public.user_stats.current_streak + 1 else 0 end,
@@ -306,9 +474,18 @@ begin
       case when p_is_correct then public.user_stats.current_streak + 1 else 0 end
     ),
     last_attempt_at = clock_timestamp(),
+    type_correct_counts = case when p_is_correct then
+        jsonb_set(
+          public.user_stats.type_correct_counts,
+          array[p_question_type],
+          to_jsonb(coalesce((public.user_stats.type_correct_counts ->> p_question_type)::int, 0) + 1)
+        )
+      else public.user_stats.type_correct_counts
+      end,
     updated_at = now();
 
-  select xp, total_correct, best_streak into v_xp, v_total_correct, v_best_streak
+  select xp, total_correct, best_streak, current_streak, type_correct_counts
+    into v_xp, v_total_correct, v_best_streak, v_current_streak, v_type_counts_json
   from public.user_stats where user_id = v_uid;
 
   -- milestone badges (each check is a no-op once already earned,
@@ -355,6 +532,18 @@ begin
     if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
   end if;
 
+  -- per-question-type mastery (30 correct of this same type) — only
+  -- the type just answered needs checking, not all 13.
+  if p_is_correct then
+    v_type_count := coalesce((v_type_counts_json ->> p_question_type)::int, 0);
+    if v_type_count >= 30 then
+      v_code := null;
+      insert into public.user_achievements (user_id, code) values (v_uid, 'type_master_' || p_question_type)
+        on conflict do nothing returning code into v_code;
+      if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
+    end if;
+  end if;
+
   if p_session_id is not null then
     select count(*), count(*) filter (where is_correct)
       into v_session_total, v_session_correct
@@ -379,22 +568,25 @@ begin
     if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
   end if;
 
-  -- Current consecutive-day streak (including today, since the
-  -- insert above already recorded today's activity): classic
-  -- "gaps and islands" trick — d minus its row_number() is constant
-  -- across a run of consecutive dates, so the island containing
-  -- today's date has that many rows.
-  with days as (
-    select distinct (created_at at time zone 'utc')::date as d
-    from public.attempts where user_id = v_uid
-  ),
-  grouped as (
-    select d, d - (row_number() over (order by d))::int as grp
-    from days
-  )
-  select count(*) into v_day_streak
-  from grouped
-  where grp = (select grp from grouped where d = (clock_timestamp() at time zone 'utc')::date);
+  -- per-juz completion — only the juz of the page just answered needs
+  -- checking (a correct answer elsewhere can't complete THIS juz).
+  if p_is_correct and p_page is not null then
+    v_juz := public.juz_for_page(p_page);
+    select range_min, range_max into v_juz_min, v_juz_max from public.juz_page_range(v_juz);
+
+    if v_juz_min is not null and not exists (
+      select 1 from generate_series(v_juz_min, v_juz_max) as pg
+      where not exists (
+        select 1 from public.attempts a2
+        where a2.user_id = v_uid and a2.page = pg and a2.is_correct
+      )
+    ) then
+      v_code := null;
+      insert into public.user_achievements (user_id, code) values (v_uid, 'juz_complete_' || v_juz)
+        on conflict do nothing returning code into v_code;
+      if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
+    end if;
+  end if;
 
   if coalesce(v_day_streak, 0) >= 3 then
     v_code := null;
@@ -417,11 +609,37 @@ begin
     if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
   end if;
 
-  return jsonb_build_object('earned', to_jsonb(v_earned), 'xp', v_xp);
+  -- time-based badges, using the caller's local hour/weekday (see the
+  -- function comment above) rather than the server's UTC clock.
+  if p_local_hour is not null and p_local_hour >= 0 and p_local_hour < 5 then
+    v_code := null;
+    insert into public.user_achievements (user_id, code) values (v_uid, 'night_owl')
+      on conflict do nothing returning code into v_code;
+    if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
+  end if;
+
+  if p_local_hour is not null and p_local_hour >= 4 and p_local_hour < 7 then
+    v_code := null;
+    insert into public.user_achievements (user_id, code) values (v_uid, 'early_bird')
+      on conflict do nothing returning code into v_code;
+    if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
+  end if;
+
+  if coalesce(p_is_weekend, false) then
+    v_code := null;
+    insert into public.user_achievements (user_id, code) values (v_uid, 'weekend_warrior')
+      on conflict do nothing returning code into v_code;
+    if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
+  end if;
+
+  return jsonb_build_object(
+    'earned', to_jsonb(v_earned), 'xp', v_xp,
+    'xpGained', v_xp_gain, 'currentStreak', v_current_streak
+  );
 end;
 $$;
 
-grant execute on function public.record_attempt(bigint, text, int, boolean, int, int) to authenticated;
+grant execute on function public.record_attempt(bigint, text, int, boolean, int, int, int, boolean) to authenticated;
 
 -- 7) Backfill: give existing users (from before sessions existed) a
 --    default session and attach their orphaned attempts to it.
