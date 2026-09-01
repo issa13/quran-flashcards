@@ -1225,6 +1225,12 @@ const challengeResultsSection = document.getElementById("challengeResultsSection
 
 const challengeProgressLabel = document.getElementById("challengeProgressLabel");
 const challengeScoreboard = document.getElementById("challengeScoreboard");
+const challengeTypeIntro = document.getElementById("challengeTypeIntro");
+const challengeTypeIntroLabel = document.getElementById("challengeTypeIntroLabel");
+const challengeTypeIntroDesc = document.getElementById("challengeTypeIntroDesc");
+const challengeTypeIntroCount = document.getElementById("challengeTypeIntroCount");
+const challengeTypeIntroContinueBtn = document.getElementById("challengeTypeIntroContinueBtn");
+const challengeQuestionArea = document.getElementById("challengeQuestionArea");
 const challengeProgressBar = document.getElementById("challengeProgressBar");
 const challengeFlashcard = document.getElementById("challengeFlashcard");
 const challengeCardHelp = document.getElementById("challengeCardHelp");
@@ -1240,9 +1246,13 @@ const challengeNewBtn = document.getElementById("challengeNewBtn");
 
 // -------- state --------
 let challengePlayers = [];        // [{ name, score }]
-let challengeQueue = [];          // remaining question types, shuffled
+let challengeQueue = [];          // remaining question types, grouped into
+                                   // same-type blocks (see buildChallengeQueue)
 let challengeTotalQuestions = 0;
 let challengeQuestionIndex = 0;
+let challengeCountPerType = 5;
+let challengeLastShownType = null;   // type of the last question actually shown
+let challengeTypeBlockPosition = 0;  // 1-based position within the current type's block
 let challengeRangeMinP = 1;
 let challengeRangeMaxP = 604;
 let challengeTimerSeconds = 30;
@@ -1395,12 +1405,19 @@ async function refreshChallengeStartAvailability() {
 }
 
 // -------- starting a challenge --------
+// Groups questions into same-type blocks (e.g. all 5 "خمن السورة"
+// questions back-to-back, then all 5 of the next type) rather than
+// interleaving types randomly — so the group always knows what kind
+// of question is coming for the next few rounds instead of it
+// changing unpredictably every question. The block *order* is still
+// shuffled each game.
 function buildChallengeQueue(selectedTypes, countPerType) {
+  const orderedTypes = shuffle(selectedTypes);
   const queue = [];
-  selectedTypes.forEach((type) => {
+  orderedTypes.forEach((type) => {
     for (let i = 0; i < countPerType; i++) queue.push(type);
   });
-  return shuffle(queue);
+  return queue;
 }
 
 function renderChallengeScoreboard() {
@@ -1422,9 +1439,12 @@ challengeStartBtn.addEventListener("click", async () => {
   challengeRangeMinP = range.minP;
   challengeRangeMaxP = range.maxP;
   challengeTimerSeconds = parseInt(challengeTimerSelect.value, 10) || 0;
+  challengeCountPerType = count;
   challengeQueue = buildChallengeQueue(selectedTypes, count);
   challengeTotalQuestions = challengeQueue.length;
   challengeQuestionIndex = 0;
+  challengeLastShownType = null;
+  challengeTypeBlockPosition = 0;
 
   renderChallengeScoreboard();
   challengeSetupSection.style.display = "none";
@@ -1513,11 +1533,12 @@ challengePlayAudioBtn.addEventListener("click", async () => {
   }
 });
 
-// Generates the next question in the queue and shows it. Retries a
-// few times on a transient generation failure (same class of failure
-// solo mode can hit — e.g. a page with too few ayahs for a given
-// type), and if it still can't produce one, silently skips that slot
-// rather than stalling the group's game.
+// Called between every question. Peeks at what type is coming up
+// next — if it's a new block (different type than the last question
+// shown), it shows the type-intro screen and waits for the group to
+// hit "ابدأ هذا النوع" before generating anything or starting a timer.
+// If it's the same block continuing, it goes straight to the next
+// question, same as before.
 async function nextChallengeQuestion() {
   challengeAnswered = false;
   challengeAwardSection.style.display = "none";
@@ -1531,9 +1552,43 @@ async function nextChallengeQuestion() {
     return;
   }
 
+  const nextType = challengeQueue[0];
+  if (nextType !== challengeLastShownType) {
+    showChallengeTypeIntro(nextType);
+    return;
+  }
+
+  await proceedToChallengeQuestion();
+}
+
+function showChallengeTypeIntro(type) {
+  challengeQuestionArea.style.display = "none";
+  challengeTypeIntro.style.display = "block";
+  challengeTypeIntroLabel.textContent = getTypeLabel(type);
+  challengeTypeIntroDesc.textContent = getTypeDescription(type);
+  const blockSize = challengeQueue.filter((t) => t === type).length;
+  challengeTypeIntroCount.textContent = blockSize > 1 ? `${blockSize} أسئلة من هذا النوع` : "سؤال واحد من هذا النوع";
+}
+
+challengeTypeIntroContinueBtn.addEventListener("click", async () => {
+  challengeTypeIntro.style.display = "none";
+  challengeQuestionArea.style.display = "block";
+  await proceedToChallengeQuestion();
+});
+
+// Generates and shows the next question in the queue. Retries a few
+// times on a transient generation failure (same class of failure
+// solo mode can hit — e.g. a page with too few ayahs for a given
+// type); if it still can't produce one, it discards that slot and
+// falls back through nextChallengeQuestion() so a type-intro still
+// shows if the failure happened to be the last question of its block.
+async function proceedToChallengeQuestion() {
   challengeQuestionIndex++;
   const type = challengeQueue.shift();
-  challengeProgressLabel.textContent = `سؤال ${challengeQuestionIndex} من ${challengeTotalQuestions}`;
+  challengeTypeBlockPosition = (type === challengeLastShownType) ? challengeTypeBlockPosition + 1 : 1;
+  challengeLastShownType = type;
+  challengeProgressLabel.textContent =
+    `سؤال ${challengeQuestionIndex} من ${challengeTotalQuestions} (${challengeTypeBlockPosition}/${challengeCountPerType} لهذا النوع)`;
 
   let qa = null;
   let attempts = 0;

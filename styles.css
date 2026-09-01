@@ -1144,6 +1144,39 @@ select:focus, input:focus {
 }
 .challenge-result-row.winner .stat-row-label { color: var(--accent-text); font-weight: 900; }
 
+.challenge-type-intro {
+  text-align: center;
+  padding: 10px 4px 4px;
+}
+.challenge-type-intro-icon {
+  font-size: 34px;
+  animation: audioPulse 1.8s ease-in-out infinite;
+}
+.challenge-type-intro-label {
+  margin-top: 8px;
+  font-family: 'Aref Ruqaa', serif;
+  font-weight: 700;
+  font-size: 21px;
+  color: var(--accent-text);
+}
+.challenge-type-intro-desc {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.8;
+  padding: 0 6px;
+}
+.challenge-type-intro-count {
+  margin-top: 10px;
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--gold);
+  background: rgba(var(--gold-rgb), 0.12);
+  border-radius: 999px;
+  padding: 5px 14px;
+}
+
 /* -------- Stats / leaderboard -------- */
 .stats-body { margin-top: 4px; }
 

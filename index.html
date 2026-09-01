@@ -392,7 +392,7 @@
             </select>
           </div>
 
-          <button id="challengeStartBtn" class="btn primary full" style="margin-top:16px;" disabled>ابدأ التحدي</button>
+          <button id="challengeStartBtn" class="btn primary" style="margin-top:16px; width:100%;" disabled>ابدأ التحدي</button>
           <div id="challengeSetupError" class="status" style="margin-top:8px;"></div>
         </div>
 
@@ -405,23 +405,36 @@
 
           <div id="challengeScoreboard" class="challenge-scoreboard"></div>
 
-          <div class="progress-wrap" style="margin: 12px auto; width:100%;">
-            <div id="challengeProgressBar" class="progress-bar"></div>
+          <!-- Shown once at the start of every same-type block (including
+               the very first question) — BEFORE the timer starts, so the
+               group knows what's coming instead of finding out mid-round. -->
+          <div id="challengeTypeIntro" class="challenge-type-intro" style="display:none;">
+            <div class="challenge-type-intro-icon">🔔</div>
+            <div class="challenge-type-intro-label" id="challengeTypeIntroLabel"></div>
+            <div class="challenge-type-intro-desc" id="challengeTypeIntroDesc"></div>
+            <div class="challenge-type-intro-count" id="challengeTypeIntroCount"></div>
+            <button id="challengeTypeIntroContinueBtn" class="btn primary" style="width:100%; margin-top:16px;">ابدأ هذا النوع</button>
           </div>
 
-          <div id="challengeFlashcard" class="mcq-card">
-            <div class="helper" id="challengeCardHelp"></div>
-            <div class="text" id="challengeQText">—</div>
-            <button id="challengePlayAudioBtn" type="button" class="btn small ghost audio-btn" style="display:none;">🔊 استماع</button>
-            <div class="sub">مرجع للمجموعة — من يجيب أولاً يقول الجواب بصوت عالٍ</div>
-            <div id="challengeMcqChoices" class="mcq-choices"></div>
-          </div>
+          <div id="challengeQuestionArea" style="display:none;">
+            <div class="progress-wrap" style="margin: 12px auto; width:100%;">
+              <div id="challengeProgressBar" class="progress-bar"></div>
+            </div>
 
-          <button id="challengeRevealBtn" class="btn primary full" style="margin-top:14px;">كشف الإجابة</button>
+            <div id="challengeFlashcard" class="mcq-card">
+              <div class="helper" id="challengeCardHelp"></div>
+              <div class="text" id="challengeQText">—</div>
+              <button id="challengePlayAudioBtn" type="button" class="btn small ghost audio-btn" style="display:none;">🔊 استماع</button>
+              <div class="sub">مرجع للمجموعة — من يجيب أولاً يقول الجواب بصوت عالٍ</div>
+              <div id="challengeMcqChoices" class="mcq-choices"></div>
+            </div>
 
-          <div id="challengeAwardSection" style="display:none; margin-top:14px;">
-            <div class="hint" style="text-align:center; margin-bottom:8px;">من أجاب أولاً بشكل صحيح؟</div>
-            <div id="challengeAwardButtons" class="challenge-award-buttons"></div>
+            <button id="challengeRevealBtn" class="btn primary" style="margin-top:14px; width:100%;">كشف الإجابة</button>
+
+            <div id="challengeAwardSection" style="display:none; margin-top:14px;">
+              <div class="hint" style="text-align:center; margin-bottom:8px;">من أجاب أولاً بشكل صحيح؟</div>
+              <div id="challengeAwardButtons" class="challenge-award-buttons"></div>
+            </div>
           </div>
         </div>
 
@@ -431,7 +444,7 @@
             <div class="view-title">🏁 النتيجة النهائية</div>
           </div>
           <div id="challengeResultsBody" class="stats-body"></div>
-          <button id="challengeNewBtn" class="btn primary full" style="margin-top:14px;">تحدٍّ جديد</button>
+          <button id="challengeNewBtn" class="btn primary" style="margin-top:14px; width:100%;">تحدٍّ جديد</button>
         </div>
 
       </div>
