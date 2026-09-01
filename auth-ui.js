@@ -89,6 +89,7 @@ const appViews = {
   progress: document.getElementById("view-progress"),
   friends: document.getElementById("view-friends"),
   leaderboard: document.getElementById("view-leaderboard"),
+  challenge: document.getElementById("view-challenge"),
 };
 
 function switchView(name) {

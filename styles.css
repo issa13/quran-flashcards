@@ -707,7 +707,7 @@ select:focus, input:focus {
 /* Audio-only question (listenNext): the text is deliberately a
    placeholder, and the listen button is the whole point — make it
    unmissable with a gentle pulse until pressed. */
-.mcq-card.audio-question #qText {
+.mcq-card.audio-question .text {
   font-style: italic;
   color: var(--muted);
   font-weight: 700;
@@ -1041,6 +1041,108 @@ select:focus, input:focus {
   font-weight: 700;
   color: var(--muted);
 }
+
+/* -------- Challenge mode (⚔️ تحديات) -------- */
+.challenge-players-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.challenge-player-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.challenge-player-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.challenge-remove-player-btn {
+  flex: 0 0 auto;
+  padding: 9px 12px;
+}
+
+.challenge-types-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.challenge-type-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid rgba(var(--ink-rgb), 0.12);
+  background: var(--card);
+  cursor: pointer;
+  line-height: 1.4;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.challenge-type-chip.checked,
+.challenge-type-chip:has(input:checked) {
+  border-color: var(--emerald);
+  background: var(--success-bg);
+  color: var(--accent-text);
+}
+.challenge-type-chip input { accent-color: var(--emerald); width: 15px; height: 15px; flex: 0 0 auto; }
+
+.challenge-progress-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.challenge-scoreboard {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.challenge-score-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--success-bg), var(--card));
+  border: 1.5px solid rgba(var(--success-rgb), 0.3);
+  font-size: 12px;
+  font-weight: 800;
+}
+.challenge-score-name { color: var(--ink); }
+.challenge-score-points {
+  color: var(--accent-text);
+  background: rgba(var(--emerald-rgb), 0.12);
+  border-radius: 999px;
+  padding: 1px 8px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.challenge-award-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.challenge-award-btn { width: 100%; text-align: center; }
+
+.challenge-result-row.winner {
+  background: linear-gradient(135deg, var(--success-bg), var(--card-alt));
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.challenge-result-row.winner .stat-row-label { color: var(--accent-text); font-weight: 900; }
 
 /* -------- Stats / leaderboard -------- */
 .stats-body { margin-top: 4px; }

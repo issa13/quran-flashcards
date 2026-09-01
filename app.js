@@ -1186,6 +1186,504 @@ async function generateCard() {
   }
 }
 
+// ============================================================
+// Offline challenge mode (⚔️ تحديات) — up to 4 players sharing one
+// device, buzzer-style: the group reveals the answer together and a
+// moderator (whoever's holding the phone) taps who called it out
+// correctly first. Fully client-side and ephemeral — no accounts
+// involved, nothing is saved anywhere, it all resets on reload.
+// Reuses the same question-generation helpers as solo mode
+// (fetchPageAyahs, pickQAFromPage, pickAdjacentPageQA, buildChoices)
+// so a challenge question looks and behaves exactly like a normal one.
+// ============================================================
+
+const CHALLENGE_TYPES = [
+  "first", "last", "previous", "surah", "pageNumber", "ayahCount",
+  "nextPageFirst", "prevPageFirst", "pageEndToNextFirst", "pageStartToPrevLast",
+  "juz", "ayahNumber", "listenNext",
+];
+const CHALLENGE_MIN_TYPES = 3;
+const CHALLENGE_MIN_PLAYERS = 2;
+const CHALLENGE_MAX_PLAYERS = 4;
+
+// -------- DOM --------
+const challengePlayersList = document.getElementById("challengePlayersList");
+const challengeAddPlayerBtn = document.getElementById("challengeAddPlayerBtn");
+const challengeRangeSelect = document.getElementById("challengeRangeSelect");
+const challengeTimerSelect = document.getElementById("challengeTimerSelect");
+const challengeCustomRangeRow = document.getElementById("challengeCustomRangeRow");
+const challengeCustomMin = document.getElementById("challengeCustomMin");
+const challengeCustomMax = document.getElementById("challengeCustomMax");
+const challengeTypesGrid = document.getElementById("challengeTypesGrid");
+const challengeCountSelect = document.getElementById("challengeCountSelect");
+const challengeStartBtn = document.getElementById("challengeStartBtn");
+const challengeSetupError = document.getElementById("challengeSetupError");
+
+const challengeSetupSection = document.getElementById("challengeSetupSection");
+const challengePlaySection = document.getElementById("challengePlaySection");
+const challengeResultsSection = document.getElementById("challengeResultsSection");
+
+const challengeProgressLabel = document.getElementById("challengeProgressLabel");
+const challengeScoreboard = document.getElementById("challengeScoreboard");
+const challengeProgressBar = document.getElementById("challengeProgressBar");
+const challengeFlashcard = document.getElementById("challengeFlashcard");
+const challengeCardHelp = document.getElementById("challengeCardHelp");
+const challengeQText = document.getElementById("challengeQText");
+const challengeMcqChoices = document.getElementById("challengeMcqChoices");
+const challengePlayAudioBtn = document.getElementById("challengePlayAudioBtn");
+const challengeRevealBtn = document.getElementById("challengeRevealBtn");
+const challengeAwardSection = document.getElementById("challengeAwardSection");
+const challengeAwardButtons = document.getElementById("challengeAwardButtons");
+
+const challengeResultsBody = document.getElementById("challengeResultsBody");
+const challengeNewBtn = document.getElementById("challengeNewBtn");
+
+// -------- state --------
+let challengePlayers = [];        // [{ name, score }]
+let challengeQueue = [];          // remaining question types, shuffled
+let challengeTotalQuestions = 0;
+let challengeQuestionIndex = 0;
+let challengeRangeMinP = 1;
+let challengeRangeMaxP = 604;
+let challengeTimerSeconds = 30;
+let challengeCurrentCorrectIndex = -1;
+let challengeCurrentAudioAyah = null;
+let challengeAnswered = false;
+let challengeTimerInterval = null;
+let challengeTimerStart = 0;
+let challengeTimerDurationMs = 0;
+let challengeAudioEl = null;
+let challengeValidationToken = 0;
+
+function escapeChallengeHtml(str) {
+  return (str || "").toString().replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+// -------- setup: players --------
+function renderChallengePlayerRows() {
+  challengePlayersList.innerHTML = "";
+  challengePlayers.forEach((p, idx) => {
+    const row = document.createElement("div");
+    row.className = "challenge-player-row";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.maxLength = 20;
+    input.placeholder = `اسم اللاعب ${idx + 1}`;
+    input.value = p.name;
+    input.addEventListener("input", () => {
+      challengePlayers[idx].name = input.value;
+      refreshChallengeStartAvailability();
+    });
+    row.appendChild(input);
+
+    if (challengePlayers.length > CHALLENGE_MIN_PLAYERS) {
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "btn small ghost danger challenge-remove-player-btn";
+      removeBtn.textContent = "✕";
+      removeBtn.addEventListener("click", () => {
+        challengePlayers.splice(idx, 1);
+        renderChallengePlayerRows();
+        refreshChallengeStartAvailability();
+      });
+      row.appendChild(removeBtn);
+    }
+
+    challengePlayersList.appendChild(row);
+  });
+
+  challengeAddPlayerBtn.style.display = challengePlayers.length >= CHALLENGE_MAX_PLAYERS ? "none" : "";
+}
+
+challengeAddPlayerBtn.addEventListener("click", () => {
+  if (challengePlayers.length >= CHALLENGE_MAX_PLAYERS) return;
+  challengePlayers.push({ name: "", score: 0 });
+  renderChallengePlayerRows();
+  refreshChallengeStartAvailability();
+});
+
+// -------- setup: range --------
+function showHideChallengeCustomRange() {
+  challengeCustomRangeRow.style.display = (challengeRangeSelect.value === "custom") ? "flex" : "none";
+}
+challengeRangeSelect.addEventListener("change", () => {
+  showHideChallengeCustomRange();
+  refreshChallengeStartAvailability();
+});
+[challengeCustomMin, challengeCustomMax].forEach((el) => {
+  el.addEventListener("change", refreshChallengeStartAvailability);
+});
+
+// -------- setup: question types --------
+function renderChallengeTypesGrid() {
+  challengeTypesGrid.innerHTML = "";
+  CHALLENGE_TYPES.forEach((type) => {
+    const label = document.createElement("label");
+    label.className = "challenge-type-chip";
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = type;
+    cb.addEventListener("change", () => {
+      label.classList.toggle("checked", cb.checked);
+      refreshChallengeStartAvailability();
+    });
+
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(getTypeLabel(type)));
+    challengeTypesGrid.appendChild(label);
+  });
+}
+
+function getSelectedChallengeTypes() {
+  return Array.from(challengeTypesGrid.querySelectorAll("input[type=checkbox]:checked")).map((cb) => cb.value);
+}
+
+// -------- setup: validation --------
+// A dedicated (not the solo-mode checkGenerationBlock()) validator —
+// that one also factors in mistake-review mode, which is solo-session
+// state that has nothing to do with a challenge. This reuses the same
+// underlying range-coverage checks (ADJACENT_TYPES/juzsInRange/
+// surahsInRange/MIN_MCQ_ANSWERS) without that coupling.
+async function challengeTypeBlockMessage(type, minP, maxP) {
+  if (ADJACENT_TYPES.has(type) && maxP <= minP) {
+    return "يلزم نطاق يشمل أكثر من صفحة واحدة لهذا النوع.";
+  }
+  if (type === "juz") {
+    const available = juzsInRange(minP, maxP);
+    if (available.length < MIN_MCQ_ANSWERS) return rangeTooNarrowMessage("خمن الجزء", available.length, "جزء", "أجزاء");
+  }
+  if (type === "pageNumber") {
+    const available = maxP - minP + 1;
+    if (available < MIN_MCQ_ANSWERS) return rangeTooNarrowMessage("خمن رقم الصفحة", available, "صفحة", "صفحات");
+  }
+  if (type === "surah") {
+    const available = await surahsInRange(minP, maxP);
+    if (available.length < MIN_MCQ_ANSWERS) return rangeTooNarrowMessage("خمن السورة", available.length, "سورة", "سور");
+  }
+  return null;
+}
+
+async function refreshChallengeStartAvailability() {
+  const myToken = ++challengeValidationToken;
+
+  const names = challengePlayers.map((p) => p.name.trim());
+  const validNames = names.length >= CHALLENGE_MIN_PLAYERS && names.every((n) => n.length > 0);
+  const uniqueNames = new Set(names.map((n) => n.toLowerCase())).size === names.length;
+  const selectedTypes = getSelectedChallengeTypes();
+  const enoughTypes = selectedTypes.length >= CHALLENGE_MIN_TYPES;
+
+  let msg = "";
+  if (!validNames) msg = "أدخل اسمًا لكل لاعب (لاعبان على الأقل).";
+  else if (!uniqueNames) msg = "الأسماء يجب أن تكون مختلفة عن بعضها.";
+  else if (!enoughTypes) msg = `اختر ${CHALLENGE_MIN_TYPES} أنواع أسئلة على الأقل.`;
+
+  if (!msg) {
+    const range = resolveRangeBounds(challengeRangeSelect.value, challengeCustomMin.value, challengeCustomMax.value);
+    for (const type of selectedTypes) {
+      const blocked = await challengeTypeBlockMessage(type, range.minP, range.maxP);
+      if (blocked) { msg = `"${getTypeLabel(type)}": ${blocked}`; break; }
+    }
+  }
+
+  if (myToken !== challengeValidationToken) return; // a newer check superseded this one
+  challengeSetupError.textContent = msg;
+  challengeStartBtn.disabled = !!msg;
+}
+
+// -------- starting a challenge --------
+function buildChallengeQueue(selectedTypes, countPerType) {
+  const queue = [];
+  selectedTypes.forEach((type) => {
+    for (let i = 0; i < countPerType; i++) queue.push(type);
+  });
+  return shuffle(queue);
+}
+
+function renderChallengeScoreboard() {
+  challengeScoreboard.innerHTML = challengePlayers
+    .map((p) => `
+      <div class="challenge-score-chip">
+        <span class="challenge-score-name">${escapeChallengeHtml(p.name)}</span>
+        <span class="challenge-score-points">${p.score}</span>
+      </div>`)
+    .join("");
+}
+
+challengeStartBtn.addEventListener("click", async () => {
+  const selectedTypes = getSelectedChallengeTypes();
+  const range = resolveRangeBounds(challengeRangeSelect.value, challengeCustomMin.value, challengeCustomMax.value);
+  const count = parseInt(challengeCountSelect.value, 10) || 5;
+
+  challengePlayers = challengePlayers.map((p) => ({ name: p.name.trim(), score: 0 }));
+  challengeRangeMinP = range.minP;
+  challengeRangeMaxP = range.maxP;
+  challengeTimerSeconds = parseInt(challengeTimerSelect.value, 10) || 0;
+  challengeQueue = buildChallengeQueue(selectedTypes, count);
+  challengeTotalQuestions = challengeQueue.length;
+  challengeQuestionIndex = 0;
+
+  renderChallengeScoreboard();
+  challengeSetupSection.style.display = "none";
+  challengeResultsSection.style.display = "none";
+  challengePlaySection.style.display = "block";
+
+  await nextChallengeQuestion();
+});
+
+// -------- play (buzzer) --------
+function renderChallengeChoices(choices) {
+  challengeMcqChoices.innerHTML = "";
+  choices.forEach((choiceText) => {
+    const div = document.createElement("div");
+    div.className = "mcq-choice locked";
+    div.textContent = choiceText;
+    div.style.fontSize = choiceFontSize(choiceText);
+    challengeMcqChoices.appendChild(div);
+  });
+}
+
+function revealChallengeChoices() {
+  Array.from(challengeMcqChoices.children).forEach((el, idx) => {
+    if (idx === challengeCurrentCorrectIndex) el.classList.add("correct");
+  });
+}
+
+function stopChallengeTimer() {
+  if (challengeTimerInterval) {
+    clearInterval(challengeTimerInterval);
+    challengeTimerInterval = null;
+  }
+  challengeProgressBar.style.width = "0%";
+}
+
+function startChallengeTimer() {
+  stopChallengeTimer();
+  if (challengeTimerSeconds <= 0) return; // "بدون مؤقت" — no auto-reveal, group paces itself
+
+  challengeTimerDurationMs = challengeTimerSeconds * 1000;
+  challengeTimerStart = Date.now();
+  challengeProgressBar.style.width = "0%";
+
+  challengeTimerInterval = setInterval(() => {
+    const elapsed = Date.now() - challengeTimerStart;
+    const pct = clamp((elapsed / challengeTimerDurationMs) * 100, 0, 100);
+    challengeProgressBar.style.width = pct + "%";
+    if (elapsed >= challengeTimerDurationMs) {
+      stopChallengeTimer();
+      if (!challengeAnswered) revealChallengeAnswer();
+    }
+  }, 100);
+}
+
+function challengeAudioStop() {
+  if (challengeAudioEl) {
+    challengeAudioEl.pause();
+    challengeAudioEl.currentTime = 0;
+    challengeAudioEl = null;
+  }
+  challengePlayAudioBtn.textContent = "🔊 استماع";
+  challengePlayAudioBtn.classList.remove("playing");
+}
+
+challengePlayAudioBtn.addEventListener("click", async () => {
+  if (challengeAudioEl && !challengeAudioEl.paused) {
+    challengeAudioStop();
+    return;
+  }
+  if (!challengeCurrentAudioAyah) return;
+
+  challengePlayAudioBtn.disabled = true;
+  challengePlayAudioBtn.textContent = "⏳ جارٍ التحميل...";
+  try {
+    const url = await fetchAyahAudioUrl(challengeCurrentAudioAyah);
+    if (!url) throw new Error("no audio url");
+    challengeAudioEl = new Audio(url);
+    challengeAudioEl.addEventListener("ended", challengeAudioStop);
+    await challengeAudioEl.play();
+    challengePlayAudioBtn.textContent = "⏸️ إيقاف";
+    challengePlayAudioBtn.classList.add("playing");
+  } catch (e) {
+    challengeAudioStop();
+  } finally {
+    challengePlayAudioBtn.disabled = false;
+  }
+});
+
+// Generates the next question in the queue and shows it. Retries a
+// few times on a transient generation failure (same class of failure
+// solo mode can hit — e.g. a page with too few ayahs for a given
+// type), and if it still can't produce one, silently skips that slot
+// rather than stalling the group's game.
+async function nextChallengeQuestion() {
+  challengeAnswered = false;
+  challengeAwardSection.style.display = "none";
+  challengeRevealBtn.style.display = "";
+  challengeRevealBtn.disabled = false;
+  stopChallengeTimer();
+  challengeAudioStop();
+
+  if (challengeQueue.length === 0) {
+    finishChallenge();
+    return;
+  }
+
+  challengeQuestionIndex++;
+  const type = challengeQueue.shift();
+  challengeProgressLabel.textContent = `سؤال ${challengeQuestionIndex} من ${challengeTotalQuestions}`;
+
+  let qa = null;
+  let attempts = 0;
+  while (!qa && attempts < 6) {
+    attempts++;
+    let page;
+    if (type === "nextPageFirst" || type === "pageEndToNextFirst") {
+      page = randInt(challengeRangeMinP, challengeRangeMaxP - 1);
+    } else if (type === "prevPageFirst" || type === "pageStartToPrevLast") {
+      page = randInt(challengeRangeMinP + 1, challengeRangeMaxP);
+    } else {
+      page = randInt(challengeRangeMinP, challengeRangeMaxP);
+    }
+
+    try {
+      if (ADJACENT_TYPES.has(type)) {
+        qa = await pickAdjacentPageQA(type, page);
+      } else {
+        const ayahs = await fetchPageAyahs(page);
+        qa = pickQAFromPage(ayahs, type, page);
+      }
+    } catch (e) {
+      qa = null;
+    }
+    if (qa && !qa.q && !qa.audioOnly) qa = null;
+    if (qa && !qa.a) qa = null;
+  }
+
+  if (!qa) {
+    challengeTotalQuestions = Math.max(challengeQuestionIndex, challengeTotalQuestions - 1);
+    await nextChallengeQuestion();
+    return;
+  }
+
+  const built = await buildChoices(qa, challengeRangeMinP, challengeRangeMaxP);
+  if (!built || built.choices.length < 2 || built.correctIndex < 0) {
+    challengeTotalQuestions = Math.max(challengeQuestionIndex, challengeTotalQuestions - 1);
+    await nextChallengeQuestion();
+    return;
+  }
+
+  challengeCurrentCorrectIndex = built.correctIndex;
+  challengeCurrentAudioAyah = qa.qAyahNumber || null;
+
+  const isAudioOnly = !!qa.audioOnly;
+  challengeFlashcard.classList.toggle("audio-question", isAudioOnly);
+  challengeCardHelp.textContent = `النوع: ${getTypeLabel(type)}`;
+  setCardText(challengeQText, isAudioOnly ? "🎧 اضغط زر الاستماع لسماع الآية" : qa.q);
+  renderChallengeChoices(built.choices);
+  challengePlayAudioBtn.style.display = challengeCurrentAudioAyah ? "inline-flex" : "none";
+
+  startChallengeTimer();
+}
+
+function revealChallengeAnswer() {
+  if (challengeAnswered) return;
+  challengeAnswered = true;
+  stopChallengeTimer();
+  revealChallengeChoices();
+  challengeRevealBtn.style.display = "none";
+  renderChallengeAwardButtons();
+  challengeAwardSection.style.display = "block";
+}
+challengeRevealBtn.addEventListener("click", revealChallengeAnswer);
+
+function renderChallengeAwardButtons() {
+  challengeAwardButtons.innerHTML = "";
+  challengePlayers.forEach((p, idx) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn small challenge-award-btn";
+    btn.textContent = p.name;
+    btn.addEventListener("click", () => awardChallengePoint(idx));
+    challengeAwardButtons.appendChild(btn);
+  });
+
+  const noneBtn = document.createElement("button");
+  noneBtn.type = "button";
+  noneBtn.className = "btn small ghost challenge-award-btn";
+  noneBtn.textContent = "لم يُجب أحد بشكل صحيح";
+  noneBtn.addEventListener("click", () => awardChallengePoint(-1));
+  challengeAwardButtons.appendChild(noneBtn);
+}
+
+function awardChallengePoint(playerIdx) {
+  if (playerIdx >= 0) challengePlayers[playerIdx].score += 1;
+  renderChallengeScoreboard();
+  challengeAwardSection.style.display = "none";
+  setTimeout(() => { nextChallengeQuestion(); }, 500);
+}
+
+// -------- results --------
+function finishChallenge() {
+  challengePlaySection.style.display = "none";
+  challengeResultsSection.style.display = "block";
+
+  const maxScore = Math.max(...challengePlayers.map((p) => p.score));
+  const winners = challengePlayers.filter((p) => p.score === maxScore);
+  const ranked = [...challengePlayers].sort((a, b) => b.score - a.score);
+
+  const rowsHtml = ranked
+    .map((p, i) => {
+      const isWinner = maxScore > 0 && p.score === maxScore;
+      return `
+        <div class="stat-row leaderboard-row challenge-result-row${isWinner ? " winner" : ""}">
+          <div class="stat-row-label">${isWinner ? "🏆 " : `${i + 1}. `}${escapeChallengeHtml(p.name)}</div>
+          <div class="stat-row-value">${p.score} نقطة</div>
+        </div>`;
+    })
+    .join("");
+
+  const headline = maxScore === 0
+    ? "لم يسجّل أحد أي نقطة!"
+    : winners.length > 1
+      ? `تعادل بين: ${winners.map((w) => w.name).join("، ")} 🎉`
+      : `الفائز: ${winners[0].name} 🏆`;
+
+  challengeResultsBody.innerHTML = `
+    <div class="stat-summary">
+      <div class="stat-big" style="font-size:20px;">${escapeChallengeHtml(headline)}</div>
+      <div class="stat-caption">${challengeTotalQuestions} سؤال في هذا التحدي</div>
+    </div>
+    <div class="stat-rows">${rowsHtml}</div>`;
+}
+
+function resetChallengeToSetup() {
+  challengePlayers = [{ name: "", score: 0 }, { name: "", score: 0 }];
+  renderChallengePlayerRows();
+  challengeTypesGrid.querySelectorAll("input[type=checkbox]").forEach((cb) => {
+    cb.checked = false;
+    cb.closest(".challenge-type-chip")?.classList.remove("checked");
+  });
+  challengeRangeSelect.value = "custom";
+  challengeCustomMin.value = 1;
+  challengeCustomMax.value = 604;
+  showHideChallengeCustomRange();
+  challengeTimerSelect.value = "30";
+  challengeCountSelect.value = "5";
+
+  challengeResultsSection.style.display = "none";
+  challengePlaySection.style.display = "none";
+  challengeSetupSection.style.display = "block";
+  refreshChallengeStartAvailability();
+}
+challengeNewBtn.addEventListener("click", resetChallengeToSetup);
+
+// -------- init --------
+renderChallengeTypesGrid();
+resetChallengeToSetup();
+
 generateBtn.addEventListener("click", generateCard);
 
 // Init
