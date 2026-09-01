@@ -127,6 +127,19 @@ function levelTitle(level) {
   return title;
 }
 
+// Returns the full rank ladder for display (achievements view) — each
+// tier's title, the level it starts at, and the XP that level
+// requires (via xpForLevel, so it can never drift out of sync with
+// the actual level curve). auth-ui.js calls this to render "you are
+// here" against the full list, not just the current rank name.
+function levelTierList() {
+  return LEVEL_TITLES.map((tier) => ({
+    title: tier.title,
+    minLevel: tier.min,
+    minXp: xpForLevel(tier.min),
+  }));
+}
+
 // Score
 const GUEST_SCORE_KEY = "qf_guest_score";
 let total = 0;

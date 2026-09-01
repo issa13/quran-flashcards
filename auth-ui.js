@@ -649,6 +649,58 @@ function escapeHtml(str) {
 // -------- achievements view (lifetime level + badges) --------
 function clampPct(n) { return Math.max(0, Math.min(100, n)); }
 
+// The full rank ladder (all named tiers, not just the current one) —
+// shows what's already been passed, which tier the person is in right
+// now, and how much XP stands between them and the next one, so
+// leveling up has a visible "next milestone" to chase instead of just
+// a number ticking up.
+function buildRankLadderHtml(level, xp) {
+  const tiers = (typeof levelTierList === "function") ? levelTierList() : [];
+  if (!tiers.length) return "";
+
+  let currentIdx = 0;
+  tiers.forEach((tier, i) => { if (level >= tier.minLevel) currentIdx = i; });
+
+  const rows = tiers
+    .map((tier, i) => {
+      const nextTier = tiers[i + 1];
+      const rangeLabel = nextTier
+        ? `المستوى ${tier.minLevel}–${nextTier.minLevel - 1}`
+        : `المستوى ${tier.minLevel}+`;
+
+      let statusClass = "locked";
+      let icon = "🔒";
+      let tag = "";
+
+      if (i < currentIdx) {
+        statusClass = "passed";
+        icon = "✅";
+      } else if (i === currentIdx) {
+        statusClass = "current";
+        icon = "⭐";
+        tag = '<span class="rank-ladder-tag">أنت هنا</span>';
+      } else if (i === currentIdx + 1) {
+        const xpNeeded = Math.max(0, tier.minXp - xp);
+        tag = `<span class="rank-ladder-tag rank-ladder-tag-muted">${xpNeeded} XP للوصول</span>`;
+      }
+
+      return `
+        <div class="rank-ladder-row ${statusClass}">
+          <div class="rank-ladder-icon">${icon}</div>
+          <div class="rank-ladder-info">
+            <div class="rank-ladder-title">${escapeHtml(tier.title)}</div>
+            <div class="rank-ladder-range">${rangeLabel}</div>
+          </div>
+          ${tag}
+        </div>`;
+    })
+    .join("");
+
+  return `
+    <div class="section-label">سلّم الرتب</div>
+    <div class="rank-ladder">${rows}</div>`;
+}
+
 // Called by switchView("achievements") when that tab is opened.
 async function loadAchievementsView() {
   achievementsBody.innerHTML = '<div class="status">جاري التحميل...</div>';
@@ -678,7 +730,11 @@ async function loadAchievementsView() {
       <div class="level-progress-caption">${Math.max(0, nextLevelStart - xp)} XP للمستوى التالي</div>
     </div>`;
 
-  achievementsBody.innerHTML = summaryHtml + buildBadgesGridHtml(catalog, earnedCodes);
+  achievementsBody.innerHTML =
+    summaryHtml +
+    buildRankLadderHtml(level, xp) +
+    '<div class="section-label">الإنجازات</div>' +
+    buildBadgesGridHtml(catalog, earnedCodes);
 }
 
 // Shared by the achievements view and the friend-profile view.
@@ -1033,6 +1089,7 @@ async function openFriendProfile(friendUserId) {
     <div class="section-label">النشاط اليومي (آخر 30 يومًا)</div>
     <div id="friendStreakStrip" class="streak-strip"></div>
     <div id="friendStreakNumbers" class="streak-numbers"></div>
+    ${level != null ? buildRankLadderHtml(level, data.xp || 0) : ""}
     <div class="section-label">الإنجازات</div>
     ${buildBadgesGridHtml(catalog, earnedCodes)}
     <div class="section-label">الجلسات</div>

@@ -1298,6 +1298,79 @@ select:focus, input:focus {
   color: var(--muted);
 }
 
+/* -------- Rank ladder (all named tiers, achievements view) -------- */
+.rank-ladder {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rank-ladder-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid rgba(var(--ink-rgb), 0.1);
+  background: var(--card);
+}
+
+.rank-ladder-row.passed {
+  opacity: 0.75;
+}
+
+.rank-ladder-row.current {
+  border-color: rgba(var(--gold-rgb), 0.5);
+  background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.12), var(--card));
+  box-shadow: 0 6px 16px -10px rgba(var(--gold-rgb), 0.6);
+}
+
+.rank-ladder-row.locked {
+  opacity: 0.55;
+  filter: grayscale(0.4);
+}
+
+.rank-ladder-icon {
+  font-size: 18px;
+  flex: 0 0 auto;
+  width: 24px;
+  text-align: center;
+}
+
+.rank-ladder-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.rank-ladder-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.rank-ladder-range {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+
+.rank-ladder-tag {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 800;
+  color: #3a2506;
+  background: linear-gradient(135deg, #ffcf7a, var(--gold));
+  border-radius: 999px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+.rank-ladder-tag.rank-ladder-tag-muted {
+  color: var(--accent-text);
+  background: var(--success-bg);
+  border: 1px solid rgba(var(--success-rgb), 0.3);
+}
+
 .badges-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
