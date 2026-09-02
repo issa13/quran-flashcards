@@ -270,6 +270,89 @@ function showLevelUpCelebration(level, title) {
   levelUpTimer = setTimeout(() => levelUpOverlay.classList.remove("show"), 2200);
 }
 
+// -------- global incoming-duel-invite banner --------
+// Not a modal — a slide-down banner the person can act on or ignore
+// without losing their place, appearing wherever they are in the app
+// (see subscribeToIncomingDuelInvites() in supabase-client.js, kicked
+// off from onAuthChange below). Handles two shapes of "invite":
+// a genuine friend challenge (status 'pending', needs accept/decline)
+// and an already-paired quick match (status 'accepted' — see
+// join_quick_match_queue()'s comment on why the waiting side always
+// ends up as opponent_id — just needs a tap to join).
+const duelInviteBanner = document.getElementById("duelInviteBanner");
+const duelInviteBannerTitle = document.getElementById("duelInviteBannerTitle");
+const duelInviteBannerDesc = document.getElementById("duelInviteBannerDesc");
+const duelInviteBannerActions = document.getElementById("duelInviteBannerActions");
+
+function hideDuelInviteBanner() {
+  if (duelInviteBanner) duelInviteBanner.style.display = "none";
+}
+
+function renderDuelInviteBanner(invite) {
+  if (!duelInviteBanner) return;
+  duelInviteBannerActions.innerHTML = "";
+
+  if (invite.status === "pending") {
+    duelInviteBannerTitle.textContent = `⚔️ ${invite.from_display_name || "لاعب"} يتحداك!`;
+    duelInviteBannerDesc.textContent = "تحدٍّ مباشر — هل تقبل؟";
+
+    const acceptBtn = document.createElement("button");
+    acceptBtn.type = "button";
+    acceptBtn.className = "btn small";
+    acceptBtn.textContent = "قبول";
+    acceptBtn.addEventListener("click", async () => {
+      hideDuelInviteBanner();
+      const result = await respondDuelInvite(invite.id, true);
+      if (result?.ok && typeof onDuelInviteAccepted === "function") {
+        await onDuelInviteAccepted(invite.id);
+      }
+    });
+
+    const declineBtn = document.createElement("button");
+    declineBtn.type = "button";
+    declineBtn.className = "btn small ghost";
+    declineBtn.textContent = "رفض";
+    declineBtn.addEventListener("click", async () => {
+      hideDuelInviteBanner();
+      await respondDuelInvite(invite.id, false);
+    });
+
+    duelInviteBannerActions.appendChild(acceptBtn);
+    duelInviteBannerActions.appendChild(declineBtn);
+  } else if (invite.status === "accepted") {
+    duelInviteBannerTitle.textContent = "⚔️ تم إيجاد خصم!";
+    duelInviteBannerDesc.textContent = "اضغط للانضمام إلى المبارزة.";
+
+    const joinBtn = document.createElement("button");
+    joinBtn.type = "button";
+    joinBtn.className = "btn small";
+    joinBtn.textContent = "انضمام";
+    joinBtn.addEventListener("click", async () => {
+      hideDuelInviteBanner();
+      if (typeof onDuelInviteAccepted === "function") await onDuelInviteAccepted(invite.id);
+    });
+    duelInviteBannerActions.appendChild(joinBtn);
+  } else {
+    return; // nothing actionable to show for other statuses
+  }
+
+  duelInviteBanner.style.display = "flex";
+}
+
+// Normalizes a raw realtime INSERT payload (no joined display name)
+// into the same shape renderDuelInviteBanner() expects from the
+// pull-based fallback view (my_incoming_duel_invites).
+async function handleIncomingDuelRow(row) {
+  const fromName = (typeof fetchDisplayName === "function") ? await fetchDisplayName(row.created_by) : null;
+  renderDuelInviteBanner({
+    id: row.id,
+    created_by: row.created_by,
+    from_display_name: fromName || "لاعب",
+    status: row.status,
+    is_quick_match: row.is_quick_match,
+  });
+}
+
 onAuthChange(async (user) => {
   if (user) {
     guestActions.style.display = "none";
@@ -279,6 +362,10 @@ onAuthChange(async (user) => {
 
     const stats = await fetchUserStats();
     updateLevelBadge(stats?.xp || 0);
+
+    if (typeof subscribeToIncomingDuelInvites === "function") {
+      subscribeToIncomingDuelInvites((row) => handleIncomingDuelRow(row));
+    }
   } else {
     guestActions.style.display = "flex";
     userActions.style.display = "none";
@@ -286,6 +373,9 @@ onAuthChange(async (user) => {
     lastKnownLevel = null;
     mySessions = [];
     selectedSessionId = null;
+
+    if (typeof unsubscribeFromIncomingDuelInvites === "function") unsubscribeFromIncomingDuelInvites();
+    hideDuelInviteBanner();
   }
 });
 

@@ -1144,6 +1144,184 @@ select:focus, input:focus {
 }
 .challenge-result-row.winner .stat-row-label { color: var(--accent-text); font-weight: 900; }
 
+/* -------- Challenge mode toggle (محلي / مباشر) -------- */
+.challenge-mode-toggle {
+  display: flex;
+  gap: 6px;
+  background: rgba(var(--ink-rgb), 0.06);
+  border-radius: 999px;
+  padding: 4px;
+  margin-bottom: 16px;
+}
+.challenge-mode-btn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 9px 10px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+}
+.challenge-mode-btn.active {
+  background: var(--emerald);
+  color: #fff;
+  box-shadow: 0 6px 14px -8px rgba(var(--emerald-rgb), 0.6);
+}
+
+/* -------- Online duel hub -------- */
+.duel-stats-summary {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 0 16px;
+  border-bottom: 1px dashed rgba(var(--gold-rgb), 0.35);
+  margin-bottom: 6px;
+}
+.duel-stat-pill {
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  background: var(--card-alt);
+  border: 1.5px solid rgba(var(--ink-rgb), 0.1);
+  color: var(--ink);
+}
+.duel-stat-pill.wins { color: var(--accent-text); border-color: rgba(var(--success-rgb), 0.35); }
+.duel-stat-pill.losses { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.3); }
+
+.duel-friends-list, .duel-online-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.duel-person-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid rgba(var(--ink-rgb), 0.1);
+  background: var(--card);
+}
+.duel-person-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.duel-online-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  flex: 0 0 auto;
+  box-shadow: 0 0 0 3px rgba(var(--success-rgb), 0.18);
+}
+
+/* -------- Live duel play -------- */
+.duel-scoreboard {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: 4px;
+}
+.duel-score-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--card-alt);
+  min-width: 90px;
+}
+.duel-score-side.me { border: 1.5px solid rgba(var(--emerald-rgb), 0.4); }
+.duel-score-side.opponent { border: 1.5px solid rgba(var(--danger-rgb), 0.25); }
+.duel-score-side-name {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--muted);
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.duel-score-side-points {
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--accent-text);
+}
+.duel-score-vs {
+  font-family: 'Aref Ruqaa', serif;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--gold);
+}
+
+.duel-round-status {
+  margin-top: 12px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+}
+.duel-round-status.won { background: var(--success-bg); color: var(--accent-text); }
+.duel-round-status.lost { background: var(--danger-bg); color: var(--danger); }
+.duel-round-status.waiting { background: rgba(var(--gold-rgb), 0.12); color: var(--gold); }
+.duel-round-status.timeout { background: rgba(var(--ink-rgb), 0.06); color: var(--muted); }
+
+/* -------- Global incoming-duel-invite banner -------- */
+.duel-invite-banner {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 95;
+  max-width: var(--maxw);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--card), var(--card-alt));
+  border: 1.5px solid rgba(var(--gold-rgb), 0.45);
+  box-shadow: var(--shadow-pop);
+  animation: bannerDrop 0.3s var(--ease);
+}
+@keyframes bannerDrop {
+  from { opacity: 0; transform: translateY(-16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.duel-invite-banner-icon { font-size: 22px; flex: 0 0 auto; }
+.duel-invite-banner-text { flex: 1; min-width: 0; }
+.duel-invite-banner-title {
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--accent-text);
+}
+.duel-invite-banner-desc {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.duel-invite-banner-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
 .challenge-type-intro {
   text-align: center;
   padding: 10px 4px 4px;

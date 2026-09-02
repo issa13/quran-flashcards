@@ -294,6 +294,19 @@ async function fetchProfile() {
   return data;
 }
 
+// Any signed-in user's display name (profiles is public-read) — used
+// to resolve an online-duel opponent's name from just their user id,
+// e.g. right after a quick match where the client only has an id.
+async function fetchDisplayName(userId) {
+  if (!sb || !userId) return null;
+  const { data, error } = await sb.from("profiles").select("display_name").eq("id", userId).maybeSingle();
+  if (error) {
+    console.error("fetchDisplayName error", error);
+    return null;
+  }
+  return data?.display_name || null;
+}
+
 // -------- lifetime stats & achievements (levels) --------
 async function fetchUserStats() {
   if (!sb || !currentUser) return null;
@@ -451,4 +464,318 @@ async function fetchSessionLeaderboard() {
     return [];
   }
   return data;
+}
+
+// ============================================================
+// Online duels (⚔️ تحديات → مباشر) — 1v1 live challenges, either
+// against a friend or a random matched opponent. See supabase-schema
+// .sql sections 16–29 for the tables/RPCs this wraps, and
+// supabase/functions/generate-duel-questions for how the shared
+// question set gets created without either player's browser seeing
+// the answers first.
+// ============================================================
+
+// -------- create / respond / cancel --------
+async function createFriendDuel(opponentId, rangeMin, rangeMax, timerSeconds, questionTypes, countPerType) {
+  if (!sb || !currentUser) return null;
+  const { data, error } = await sb.rpc("create_friend_duel", {
+    p_opponent_id: opponentId,
+    p_range_min: rangeMin,
+    p_range_max: rangeMax,
+    p_timer_seconds: timerSeconds,
+    p_question_types: questionTypes,
+    p_count_per_type: countPerType,
+  });
+  if (error) {
+    console.error("createFriendDuel error", error);
+    return null;
+  }
+  return data; // new duel id
+}
+
+// Same as createFriendDuel but for challenging someone off the
+// "online now" presence list who isn't necessarily an added friend —
+// see create_direct_duel() in supabase-schema.sql.
+async function createDirectDuel(opponentId, rangeMin, rangeMax, timerSeconds, questionTypes, countPerType) {
+  if (!sb || !currentUser) return null;
+  const { data, error } = await sb.rpc("create_direct_duel", {
+    p_opponent_id: opponentId,
+    p_range_min: rangeMin,
+    p_range_max: rangeMax,
+    p_timer_seconds: timerSeconds,
+    p_question_types: questionTypes,
+    p_count_per_type: countPerType,
+  });
+  if (error) {
+    console.error("createDirectDuel error", error);
+    return null;
+  }
+  return data;
+}
+
+async function respondDuelInvite(duelId, accept) {
+  if (!sb || !currentUser) return { ok: false };
+  const { data, error } = await sb.rpc("respond_duel_invite", { p_duel_id: duelId, p_accept: accept });
+  if (error) {
+    console.error("respondDuelInvite error", error);
+    return { ok: false };
+  }
+  return data || { ok: false };
+}
+
+async function cancelDuel(duelId) {
+  if (!sb || !currentUser) return false;
+  const { data, error } = await sb.rpc("cancel_duel", { p_duel_id: duelId });
+  if (error) {
+    console.error("cancelDuel error", error);
+    return false;
+  }
+  return !!data;
+}
+
+// -------- quick match queue --------
+async function joinQuickMatchQueue(rangeMin, rangeMax, timerSeconds, questionTypes, countPerType) {
+  if (!sb || !currentUser) return { matched: false };
+  const { data, error } = await sb.rpc("join_quick_match_queue", {
+    p_range_min: rangeMin,
+    p_range_max: rangeMax,
+    p_timer_seconds: timerSeconds,
+    p_question_types: questionTypes,
+    p_count_per_type: countPerType,
+  });
+  if (error) {
+    console.error("joinQuickMatchQueue error", error);
+    return { matched: false };
+  }
+  return data || { matched: false };
+}
+
+async function leaveQuickMatchQueue() {
+  if (!sb || !currentUser) return;
+  const { error } = await sb.rpc("leave_quick_match_queue");
+  if (error) console.error("leaveQuickMatchQueue error", error);
+}
+
+// -------- generating the shared question set (host only) --------
+// Calls the Edge Function rather than writing duel_questions directly
+// — see the function's own header comment for why this specifically
+// can't be a client-side insert.
+async function generateDuelQuestions(duelId) {
+  if (!sb || !currentUser) return { ok: false };
+  try {
+    const { data, error } = await sb.functions.invoke("generate-duel-questions", {
+      body: { duelId },
+    });
+    if (error) {
+      console.error("generateDuelQuestions error", error);
+      return { ok: false, error: "function_error" };
+    }
+    return data || { ok: false };
+  } catch (e) {
+    console.error("generateDuelQuestions exception", e);
+    return { ok: false, error: "network" };
+  }
+}
+
+// -------- reading duel state --------
+async function fetchDuelState(duelId) {
+  if (!sb || !currentUser) return null;
+  const { data, error } = await sb.from("duels").select("*").eq("id", duelId).maybeSingle();
+  if (error) {
+    console.error("fetchDuelState error", error);
+    return null;
+  }
+  return data;
+}
+
+async function fetchDuelQuestion(duelId, questionIndex) {
+  if (!sb || !currentUser) return null;
+  const { data, error } = await sb
+    .from("duel_questions_public")
+    .select("*")
+    .eq("duel_id", duelId)
+    .eq("question_index", questionIndex)
+    .maybeSingle();
+  if (error) {
+    console.error("fetchDuelQuestion error", error);
+    return null;
+  }
+  return data;
+}
+
+// Pull-based fallbacks (checked when the ⚔️ تحديات tab opens) so an
+// invite or an in-progress duel is never missed just because the
+// realtime channel wasn't connected at the moment it happened.
+async function fetchMyIncomingDuelInvites() {
+  if (!sb || !currentUser) return [];
+  const { data, error } = await sb
+    .from("my_incoming_duel_invites")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.error("fetchMyIncomingDuelInvites error", error);
+    return [];
+  }
+  return data || [];
+}
+
+async function fetchMyActiveDuels() {
+  if (!sb || !currentUser) return [];
+  const { data, error } = await sb
+    .from("my_active_duels")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.error("fetchMyActiveDuels error", error);
+    return [];
+  }
+  return data || [];
+}
+
+async function fetchDuelStats(userId) {
+  if (!sb) return null;
+  const { data, error } = await sb.from("duel_stats").select("*").eq("user_id", userId).maybeSingle();
+  if (error) {
+    console.error("fetchDuelStats error", error);
+    return null;
+  }
+  return data;
+}
+
+// -------- playing --------
+async function submitDuelAnswer(duelId, questionIndex, choiceIndex) {
+  if (!sb || !currentUser) return { ok: false };
+  const { data, error } = await sb.rpc("submit_duel_answer", {
+    p_duel_id: duelId,
+    p_question_index: questionIndex,
+    p_choice_index: choiceIndex,
+  });
+  if (error) {
+    console.error("submitDuelAnswer error", error);
+    return { ok: false };
+  }
+  return data || { ok: false };
+}
+
+async function advanceDuelQuestion(duelId, questionIndex) {
+  if (!sb || !currentUser) return { ok: false };
+  const { data, error } = await sb.rpc("advance_duel_question", {
+    p_duel_id: duelId,
+    p_question_index: questionIndex,
+  });
+  if (error) {
+    console.error("advanceDuelQuestion error", error);
+    return { ok: false };
+  }
+  return data || { ok: false };
+}
+
+async function forfeitDuel(duelId) {
+  if (!sb || !currentUser) return { ok: false };
+  const { data, error } = await sb.rpc("forfeit_duel", { p_duel_id: duelId });
+  if (error) {
+    console.error("forfeitDuel error", error);
+    return { ok: false };
+  }
+  return data || { ok: false };
+}
+
+async function claimOpponentForfeit(duelId) {
+  if (!sb || !currentUser) return { ok: false };
+  const { data, error } = await sb.rpc("claim_opponent_forfeit", { p_duel_id: duelId });
+  if (error) {
+    console.error("claimOpponentForfeit error", error);
+    return { ok: false };
+  }
+  return data || { ok: false };
+}
+
+// -------- realtime: incoming invites (global) --------
+// One long-lived subscription for the whole session (started once
+// after sign-in — see auth-ui.js) so a challenge shows up as a live
+// banner no matter which tab the person is currently looking at.
+// Fires on both a genuine friend invite (status 'pending') and a
+// quick-match pairing (status already 'accepted', no response needed
+// — see join_quick_match_queue()'s comment on why the waiting side
+// always ends up as opponent_id).
+let duelInviteChannel = null;
+
+function subscribeToIncomingDuelInvites(onInvite) {
+  if (!sb || !currentUser) return;
+  unsubscribeFromIncomingDuelInvites();
+  duelInviteChannel = sb
+    .channel(`duel-invites-${currentUser.id}`)
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "duels", filter: `opponent_id=eq.${currentUser.id}` },
+      (payload) => onInvite(payload.new)
+    )
+    .subscribe();
+}
+
+function unsubscribeFromIncomingDuelInvites() {
+  if (duelInviteChannel) {
+    sb.removeChannel(duelInviteChannel);
+    duelInviteChannel = null;
+  }
+}
+
+// -------- realtime: a specific duel's live state (while playing) --------
+// Watches the duels row itself (score, current_question_index,
+// status) — both players stay in lockstep by reacting to whichever of
+// them last called submit_duel_answer()/advance_duel_question(),
+// rather than polling.
+function subscribeToDuelState(duelId, onChange) {
+  if (!sb) return null;
+  const channel = sb
+    .channel(`duel-state-${duelId}`)
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "duels", filter: `id=eq.${duelId}` },
+      (payload) => onChange(payload.new)
+    )
+    .subscribe();
+  return channel;
+}
+
+function unsubscribeFromDuelState(channel) {
+  if (channel) sb.removeChannel(channel);
+}
+
+// -------- presence: "who's online right now" lobby --------
+// Pure Realtime Presence — nothing written to the database. Anyone
+// with the ⚔️ تحديات → مباشر hub open tracks themselves on this shared
+// channel; everyone else on it sees the live list to challenge
+// directly. Leaving the hub (or closing the tab) untracks
+// automatically.
+let onlineLobbyChannel = null;
+
+function joinOnlineLobby(displayName, onUpdate) {
+  if (!sb || !currentUser) return;
+  leaveOnlineLobby();
+
+  onlineLobbyChannel = sb.channel("duel-online-lobby", {
+    config: { presence: { key: currentUser.id } },
+  });
+
+  onlineLobbyChannel.on("presence", { event: "sync" }, () => {
+    const state = onlineLobbyChannel.presenceState();
+    const people = Object.entries(state)
+      .map(([userId, entries]) => ({ userId, ...(entries[0] || {}) }))
+      .filter((p) => p.userId !== currentUser.id);
+    onUpdate(people);
+  });
+
+  onlineLobbyChannel.subscribe(async (status) => {
+    if (status === "SUBSCRIBED") {
+      await onlineLobbyChannel.track({ display_name: displayName || "لاعب" });
+    }
+  });
+}
+
+function leaveOnlineLobby() {
+  if (onlineLobbyChannel) {
+    sb.removeChannel(onlineLobbyChannel);
+    onlineLobbyChannel = null;
+  }
 }

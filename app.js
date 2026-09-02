@@ -1752,6 +1752,754 @@ challengeNewBtn.addEventListener("click", resetChallengeToSetup);
 renderChallengeTypesGrid();
 resetChallengeToSetup();
 
+// ============================================================
+// Online duels (⚔️ تحديات → مباشر) — 1v1 live challenges against a
+// friend or a random matched opponent. Requires an account. See
+// supabase-client.js for the RPC/realtime/presence wrappers this
+// uses, supabase-schema.sql sections 16–29 for the tables/RPCs, and
+// supabase/functions/generate-duel-questions for how the shared
+// question set gets built without either player's browser seeing the
+// answers first.
+// ============================================================
+
+const challengeModeToggle = document.getElementById("challengeModeToggle");
+const challengeOfflineWrap = document.getElementById("challengeOfflineWrap");
+const challengeOnlineWrap = document.getElementById("challengeOnlineWrap");
+
+const duelGuestNotice = document.getElementById("duelGuestNotice");
+const duelHubSection = document.getElementById("duelHubSection");
+const duelConfigSection = document.getElementById("duelConfigSection");
+const duelWaitingSection = document.getElementById("duelWaitingSection");
+const duelPlaySection = document.getElementById("duelPlaySection");
+const duelResultsSection = document.getElementById("duelResultsSection");
+
+const duelStatsSummary = document.getElementById("duelStatsSummary");
+const duelFriendsList = document.getElementById("duelFriendsList");
+const duelQuickMatchBtn = document.getElementById("duelQuickMatchBtn");
+const duelOnlineList = document.getElementById("duelOnlineList");
+
+const duelConfigBackBtn = document.getElementById("duelConfigBackBtn");
+const duelConfigTitle = document.getElementById("duelConfigTitle");
+const duelRangeSelect = document.getElementById("duelRangeSelect");
+const duelTimerSelect = document.getElementById("duelTimerSelect");
+const duelCustomRangeRow = document.getElementById("duelCustomRangeRow");
+const duelCustomMin = document.getElementById("duelCustomMin");
+const duelCustomMax = document.getElementById("duelCustomMax");
+const duelTypesGrid = document.getElementById("duelTypesGrid");
+const duelCountSelect = document.getElementById("duelCountSelect");
+const duelSubmitBtn = document.getElementById("duelSubmitBtn");
+const duelConfigError = document.getElementById("duelConfigError");
+
+const duelWaitingTitle = document.getElementById("duelWaitingTitle");
+const duelWaitingDesc = document.getElementById("duelWaitingDesc");
+const duelWaitingCancelBtn = document.getElementById("duelWaitingCancelBtn");
+
+const duelProgressLabel = document.getElementById("duelProgressLabel");
+const duelScoreboard = document.getElementById("duelScoreboard");
+const duelProgressBar = document.getElementById("duelProgressBar");
+const duelFlashcard = document.getElementById("duelFlashcard");
+const duelCardHelp = document.getElementById("duelCardHelp");
+const duelQText = document.getElementById("duelQText");
+const duelMcqChoices = document.getElementById("duelMcqChoices");
+const duelPlayAudioBtn = document.getElementById("duelPlayAudioBtn");
+const duelRoundStatus = document.getElementById("duelRoundStatus");
+const duelForfeitBtn = document.getElementById("duelForfeitBtn");
+
+const duelResultsBody = document.getElementById("duelResultsBody");
+const duelBackToHubBtn = document.getElementById("duelBackToHubBtn");
+
+// -------- state --------
+let duelId = null;
+let duelIsHost = false;
+let duelOpponentName = "الخصم";
+let duelConfigContext = null; // { kind: 'friend'|'direct', friendId, friendName } | { kind: 'quickmatch' }
+let duelStateChannel = null;
+let duelCurrentQuestion = null;
+let duelAnswered = false;
+let duelAdvancePending = false;
+let duelTimerInterval = null;
+let duelWaitingPollInterval = null;
+let duelWaitingCancelHandler = null;
+let duelAudioEl = null;
+let duelValidationToken = 0;
+let myDisplayNameCache = null;
+
+function escapeDuelHtml(str) {
+  return (str || "").toString().replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+async function getMyDisplayName() {
+  if (myDisplayNameCache) return myDisplayNameCache;
+  const profile = (typeof fetchProfile === "function") ? await fetchProfile() : null;
+  myDisplayNameCache = profile?.display_name || "لاعب";
+  return myDisplayNameCache;
+}
+
+async function resolveDuelOpponentName(duel) {
+  if (duel.opponent_display_name) return duel.opponent_display_name; // already joined (my_active_duels)
+  const otherId = duel.created_by === currentUser.id ? duel.opponent_id : duel.created_by;
+  const name = (typeof fetchDisplayName === "function") ? await fetchDisplayName(otherId) : null;
+  return name || "الخصم";
+}
+
+// -------- مباشر/محلي mode toggle --------
+challengeModeToggle.querySelectorAll(".challenge-mode-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    challengeModeToggle.querySelectorAll(".challenge-mode-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    const mode = btn.dataset.mode;
+    challengeOfflineWrap.style.display = mode === "offline" ? "block" : "none";
+    challengeOnlineWrap.style.display = mode === "online" ? "block" : "none";
+    if (mode === "online") enterOnlineDuelMode();
+    else switchDuelScreen(null);
+  });
+});
+
+// -------- screen switching (hub / config / waiting / play / results) --------
+const duelScreens = {
+  guest: duelGuestNotice,
+  hub: duelHubSection,
+  config: duelConfigSection,
+  waiting: duelWaitingSection,
+  play: duelPlaySection,
+  results: duelResultsSection,
+};
+
+function switchDuelScreen(name) {
+  Object.entries(duelScreens).forEach(([key, el]) => {
+    el.style.display = key === name ? "block" : "none";
+  });
+
+  if (name === "hub" && currentUser) {
+    getMyDisplayName().then((myName) => {
+      if (typeof joinOnlineLobby === "function") joinOnlineLobby(myName, renderDuelOnlineList);
+    });
+  } else if (typeof leaveOnlineLobby === "function") {
+    leaveOnlineLobby();
+  }
+
+  if (name !== "waiting" && duelWaitingPollInterval) {
+    clearInterval(duelWaitingPollInterval);
+    duelWaitingPollInterval = null;
+  }
+}
+
+function showDuelWaiting(title, desc, onCancel, cancelLabel) {
+  duelWaitingTitle.textContent = title;
+  duelWaitingDesc.textContent = desc;
+  duelWaitingCancelHandler = onCancel;
+  duelWaitingCancelBtn.textContent = cancelLabel || "إلغاء";
+  duelWaitingCancelBtn.style.display = onCancel ? "" : "none";
+  switchDuelScreen("waiting");
+}
+
+duelWaitingCancelBtn.addEventListener("click", () => {
+  if (duelWaitingCancelHandler) duelWaitingCancelHandler();
+});
+
+// -------- entering online mode --------
+async function enterOnlineDuelMode() {
+  if (!currentUser) {
+    switchDuelScreen("guest");
+    return;
+  }
+
+  // Pull-based fallback (in case the realtime channel wasn't
+  // connected at the moment something happened — e.g. a page reload
+  // mid-duel, or an invite that arrived before this tab was opened).
+  const activeDuels = (typeof fetchMyActiveDuels === "function") ? await fetchMyActiveDuels() : [];
+  if (activeDuels && activeDuels.length) {
+    await resumeDuel(activeDuels[0]);
+    return;
+  }
+
+  const invites = (typeof fetchMyIncomingDuelInvites === "function") ? await fetchMyIncomingDuelInvites() : [];
+  const pending = invites.find((i) => i.status === "pending" || i.status === "accepted");
+  if (pending && typeof renderDuelInviteBanner === "function") {
+    renderDuelInviteBanner(pending);
+  }
+
+  await loadDuelHub();
+  switchDuelScreen("hub");
+}
+
+async function resumeDuel(duel) {
+  duelId = duel.id;
+  duelIsHost = duel.created_by === currentUser.id;
+  duelOpponentName = await resolveDuelOpponentName(duel);
+
+  if (duel.status === "accepted") {
+    if (duelIsHost) {
+      showDuelWaiting("جارٍ التحضير", "جارٍ تحضير الأسئلة...", null);
+      await hostGenerateQuestionsAndWatch(duel.id);
+    } else {
+      showDuelWaiting("بانتظار المضيف", `بانتظار ${escapeDuelHtml(duelOpponentName)} لتحضير الأسئلة...`, forfeitWhileWaiting, "استسلام");
+      beginDuelStateWatch(duel.id, onGuestWaitingForQuestions);
+    }
+  } else if (duel.status === "active") {
+    await enterDuelPlay(duel);
+  }
+}
+
+// -------- hub: stats, friends, online-now list --------
+async function loadDuelHub() {
+  const stats = await fetchDuelStats(currentUser.id);
+  renderDuelStatsSummary(stats);
+  await loadDuelFriendsList();
+}
+
+function renderDuelStatsSummary(stats) {
+  duelStatsSummary.innerHTML = `
+    <span class="duel-stat-pill wins">🏆 ${stats?.wins || 0} فوز</span>
+    <span class="duel-stat-pill losses">💔 ${stats?.losses || 0} خسارة</span>
+    <span class="duel-stat-pill">🤝 ${stats?.draws || 0} تعادل</span>`;
+}
+
+async function loadDuelFriendsList() {
+  duelFriendsList.innerHTML = '<div class="status">جاري التحميل...</div>';
+  const friends = (typeof fetchMyFriends === "function") ? await fetchMyFriends() : [];
+  if (!friends.length) {
+    duelFriendsList.innerHTML = '<div class="status">لا يوجد أصدقاء بعد. أضف أصدقاء من «👥 أصدقائي».</div>';
+    return;
+  }
+  duelFriendsList.innerHTML = friends
+    .map((f) => `
+      <div class="duel-person-row" data-user-id="${f.friend_user_id}" data-name="${escapeDuelHtml(f.friend_display_name)}">
+        <span class="duel-person-name">${escapeDuelHtml(f.friend_display_name)}</span>
+        <button type="button" class="btn small challenge-duel-friend-btn">⚔️ تحدَّ</button>
+      </div>`)
+    .join("");
+
+  duelFriendsList.querySelectorAll(".challenge-duel-friend-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const row = btn.closest(".duel-person-row");
+      openDuelConfig({ kind: "friend", friendId: row.dataset.userId, friendName: row.dataset.name });
+    });
+  });
+}
+
+function renderDuelOnlineList(people) {
+  if (!people || !people.length) {
+    duelOnlineList.innerHTML = '<div class="status">لا أحد متصل الآن.</div>';
+    return;
+  }
+  duelOnlineList.innerHTML = people
+    .map((p) => `
+      <div class="duel-person-row" data-user-id="${p.userId}" data-name="${escapeDuelHtml(p.display_name)}">
+        <span class="duel-person-name"><span class="duel-online-dot"></span>${escapeDuelHtml(p.display_name)}</span>
+        <button type="button" class="btn small challenge-duel-online-btn">⚔️ تحدَّ</button>
+      </div>`)
+    .join("");
+
+  duelOnlineList.querySelectorAll(".challenge-duel-online-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const row = btn.closest(".duel-person-row");
+      openDuelConfig({ kind: "direct", friendId: row.dataset.userId, friendName: row.dataset.name });
+    });
+  });
+}
+
+duelQuickMatchBtn.addEventListener("click", () => openDuelConfig({ kind: "quickmatch" }));
+
+// -------- config form (shared by friend / direct / quick-match) --------
+function openDuelConfig(context) {
+  duelConfigContext = context;
+  if (context.kind === "quickmatch") {
+    duelConfigTitle.textContent = "مباراة سريعة";
+    duelSubmitBtn.textContent = "ابحث عن خصم";
+  } else {
+    duelConfigTitle.textContent = `تحدَّ ${escapeDuelHtml(context.friendName)}`;
+    duelSubmitBtn.textContent = "إرسال التحدي";
+  }
+  switchDuelScreen("config");
+  refreshDuelConfigAvailability();
+}
+
+duelConfigBackBtn.addEventListener("click", () => switchDuelScreen("hub"));
+
+function showHideDuelCustomRange() {
+  duelCustomRangeRow.style.display = duelRangeSelect.value === "custom" ? "flex" : "none";
+}
+duelRangeSelect.addEventListener("change", () => { showHideDuelCustomRange(); refreshDuelConfigAvailability(); });
+[duelCustomMin, duelCustomMax].forEach((el) => el.addEventListener("change", refreshDuelConfigAvailability));
+
+function renderDuelTypesGrid() {
+  duelTypesGrid.innerHTML = "";
+  CHALLENGE_TYPES.forEach((type) => {
+    const label = document.createElement("label");
+    label.className = "challenge-type-chip";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = type;
+    cb.addEventListener("change", () => {
+      label.classList.toggle("checked", cb.checked);
+      refreshDuelConfigAvailability();
+    });
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(getTypeLabel(type)));
+    duelTypesGrid.appendChild(label);
+  });
+}
+
+function getSelectedDuelTypes() {
+  return Array.from(duelTypesGrid.querySelectorAll("input[type=checkbox]:checked")).map((cb) => cb.value);
+}
+
+// Reuses the same coverage checks the offline setup screen uses
+// (challengeTypeBlockMessage — no mistake-review coupling), just
+// against the duel's own range picker.
+async function refreshDuelConfigAvailability() {
+  const myToken = ++duelValidationToken;
+  const selectedTypes = getSelectedDuelTypes();
+  let msg = "";
+  if (selectedTypes.length < CHALLENGE_MIN_TYPES) msg = `اختر ${CHALLENGE_MIN_TYPES} أنواع أسئلة على الأقل.`;
+
+  if (!msg) {
+    const range = resolveRangeBounds(duelRangeSelect.value, duelCustomMin.value, duelCustomMax.value);
+    for (const type of selectedTypes) {
+      const blocked = await challengeTypeBlockMessage(type, range.minP, range.maxP);
+      if (blocked) { msg = `"${getTypeLabel(type)}": ${blocked}`; break; }
+    }
+  }
+
+  if (myToken !== duelValidationToken) return;
+  duelConfigError.textContent = msg;
+  duelSubmitBtn.disabled = !!msg;
+}
+
+async function createDuelForContext(context, range, timerSeconds, types, count) {
+  if (context.kind === "friend") {
+    return await createFriendDuel(context.friendId, range.minP, range.maxP, timerSeconds, types, count);
+  }
+  if (context.kind === "direct") {
+    return await createDirectDuel(context.friendId, range.minP, range.maxP, timerSeconds, types, count);
+  }
+  return null;
+}
+
+duelSubmitBtn.addEventListener("click", async () => {
+  const selectedTypes = getSelectedDuelTypes();
+  const range = resolveRangeBounds(duelRangeSelect.value, duelCustomMin.value, duelCustomMax.value);
+  const timerSeconds = parseInt(duelTimerSelect.value, 10) || 15;
+  const count = parseInt(duelCountSelect.value, 10) || 5;
+
+  duelSubmitBtn.disabled = true;
+
+  if (duelConfigContext.kind === "quickmatch") {
+    const result = await joinQuickMatchQueue(range.minP, range.maxP, timerSeconds, selectedTypes, count);
+    duelSubmitBtn.disabled = false;
+
+    if (result.matched) {
+      const duel = await fetchDuelState(result.duelId);
+      duelId = result.duelId;
+      duelIsHost = true;
+      duelOpponentName = duel ? await resolveDuelOpponentName(duel) : "الخصم";
+      showDuelWaiting("جارٍ التحضير", "تم إيجاد خصم! جارٍ تحضير الأسئلة...", null);
+      await hostGenerateQuestionsAndWatch(result.duelId);
+    } else {
+      showDuelWaiting("جارٍ البحث", "جارٍ البحث عن خصم بنفس الإعدادات بالضبط...", leaveQueueAndReturn, "إلغاء البحث");
+      startQuickMatchWaitPoll();
+    }
+    return;
+  }
+
+  const newId = await createDuelForContext(duelConfigContext, range, timerSeconds, selectedTypes, count);
+  duelSubmitBtn.disabled = false;
+  if (!newId) {
+    alert("تعذّر إرسال التحدي. حاول مرة أخرى.");
+    return;
+  }
+  duelId = newId;
+  duelIsHost = true;
+  duelOpponentName = duelConfigContext.friendName;
+  showDuelWaiting("بانتظار الرد", `بانتظار موافقة ${escapeDuelHtml(duelConfigContext.friendName)} على التحدي...`, cancelWaitingDuel);
+  beginDuelStateWatch(newId, onHostWaitingForAcceptance);
+});
+
+async function cancelWaitingDuel() {
+  stopQuickMatchWaitPoll();
+  if (duelId) await cancelDuel(duelId);
+  teardownDuelStateWatch();
+  duelId = null;
+  switchDuelScreen("hub");
+}
+
+async function leaveQueueAndReturn() {
+  stopQuickMatchWaitPoll();
+  await leaveQuickMatchQueue();
+  switchDuelScreen("hub");
+}
+
+// Backing out after already accepting counts as a forfeit (a real
+// opponent is committed on the other end) — cancelDuel() only works
+// for the still-uncommitted 'pending' stage, which is why the host's
+// own pre-acceptance cancel above uses that instead.
+async function forfeitWhileWaiting() {
+  stopQuickMatchWaitPoll();
+  if (duelId) await forfeitDuel(duelId);
+  teardownDuelStateWatch();
+  duelId = null;
+  switchDuelScreen("hub");
+}
+
+// -------- realtime state watching while pending/waiting --------
+function beginDuelStateWatch(id, onChange) {
+  teardownDuelStateWatch();
+  duelStateChannel = subscribeToDuelState(id, onChange);
+}
+function teardownDuelStateWatch() {
+  if (duelStateChannel) {
+    unsubscribeFromDuelState(duelStateChannel);
+    duelStateChannel = null;
+  }
+}
+
+async function onHostWaitingForAcceptance(duel) {
+  if (duel.status === "accepted") {
+    showDuelWaiting("جارٍ التحضير", "تم القبول! جارٍ تحضير الأسئلة...", null);
+    await hostGenerateQuestionsAndWatch(duel.id);
+  } else if (duel.status === "declined") {
+    teardownDuelStateWatch();
+    alert(`${duelOpponentName} رفض التحدي.`);
+    duelId = null;
+    switchDuelScreen("hub");
+  } else if (duel.status === "cancelled") {
+    teardownDuelStateWatch();
+    duelId = null;
+    switchDuelScreen("hub");
+  }
+}
+
+async function onGuestWaitingForQuestions(duel) {
+  if (duel.status === "active") {
+    teardownDuelStateWatch();
+    const fresh = await fetchDuelState(duel.id);
+    await enterDuelPlay(fresh);
+  } else if (duel.status === "cancelled" || duel.status === "finished") {
+    teardownDuelStateWatch();
+    duelId = null;
+    switchDuelScreen("hub");
+  }
+}
+
+async function hostGenerateQuestionsAndWatch(id) {
+  teardownDuelStateWatch();
+  const result = await generateDuelQuestions(id);
+  if (!result || !result.ok) {
+    alert("تعذّر تحضير أسئلة التحدي. حاول مرة أخرى لاحقًا.");
+    duelId = null;
+    switchDuelScreen("hub");
+    return;
+  }
+  const duel = await fetchDuelState(id);
+  if (duel && duel.status === "active") {
+    await enterDuelPlay(duel);
+  } else {
+    switchDuelScreen("hub");
+  }
+}
+
+// Defensive fallback for the side still waiting in the quick-match
+// queue, in case the realtime "you've been matched" notification
+// (which arrives via the same channel as friend invites) doesn't land.
+function startQuickMatchWaitPoll() {
+  stopQuickMatchWaitPoll();
+  duelWaitingPollInterval = setInterval(async () => {
+    const active = await fetchMyActiveDuels();
+    if (!active || !active.length) return;
+    stopQuickMatchWaitPoll();
+    await resumeDuel(active[0]);
+  }, 4000);
+}
+function stopQuickMatchWaitPoll() {
+  if (duelWaitingPollInterval) {
+    clearInterval(duelWaitingPollInterval);
+    duelWaitingPollInterval = null;
+  }
+}
+
+// -------- live play --------
+async function enterDuelPlay(duel) {
+  duelId = duel.id;
+  duelIsHost = duel.created_by === currentUser.id;
+  if (!duelOpponentName || duelOpponentName === "الخصم") {
+    duelOpponentName = await resolveDuelOpponentName(duel);
+  }
+
+  switchDuelScreen("play");
+  renderDuelScoreboard(duel);
+  beginDuelStateWatch(duel.id, onDuelStateChangedDuringPlay);
+  await loadDuelCurrentQuestion(duel);
+}
+
+function renderDuelScoreboard(duel) {
+  const myScore = duelIsHost ? duel.creator_score : duel.opponent_score;
+  const oppScore = duelIsHost ? duel.opponent_score : duel.creator_score;
+  duelScoreboard.innerHTML = `
+    <div class="duel-score-side me">
+      <div class="duel-score-side-name">أنت</div>
+      <div class="duel-score-side-points">${myScore}</div>
+    </div>
+    <div class="duel-score-vs">VS</div>
+    <div class="duel-score-side opponent">
+      <div class="duel-score-side-name">${escapeDuelHtml(duelOpponentName)}</div>
+      <div class="duel-score-side-points">${oppScore}</div>
+    </div>`;
+  duelProgressLabel.textContent = `سؤال ${duel.current_question_index + 1} من ${duel.total_questions}`;
+}
+
+async function onDuelStateChangedDuringPlay(duel) {
+  if (duel.status === "finished") {
+    teardownDuelStateWatch();
+    await showDuelResults(duel);
+    return;
+  }
+
+  renderDuelScoreboard(duel);
+
+  if (duel.current_question_index !== (duelCurrentQuestion?.question_index ?? -1)) {
+    await loadDuelCurrentQuestion(duel);
+  }
+}
+
+async function loadDuelCurrentQuestion(duel) {
+  duelAnswered = false;
+  duelRoundStatus.style.display = "none";
+  stopDuelTimer();
+  duelAudioStop();
+
+  const q = await fetchDuelQuestion(duel.id, duel.current_question_index);
+  if (!q) {
+    setTimeout(() => loadDuelCurrentQuestion(duel), 800); // transient fetch hiccup — retry shortly
+    return;
+  }
+  duelCurrentQuestion = q;
+
+  duelFlashcard.classList.toggle("audio-question", !!q.is_audio_only);
+  duelCardHelp.textContent = `النوع: ${getTypeLabel(q.question_type)}`;
+  setCardText(duelQText, q.is_audio_only ? "🎧 اضغط زر الاستماع لسماع الآية" : q.q_text);
+  renderDuelChoices(q.choices);
+  duelPlayAudioBtn.style.display = q.q_ayah_number ? "inline-flex" : "none";
+
+  startDuelTimer(duel);
+}
+
+function renderDuelChoices(choices) {
+  duelMcqChoices.innerHTML = "";
+  choices.forEach((choiceText, idx) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "mcq-choice";
+    btn.textContent = choiceText;
+    btn.style.fontSize = choiceFontSize(choiceText);
+    btn.dataset.index = String(idx);
+    duelMcqChoices.appendChild(btn);
+  });
+}
+
+function lockDuelChoices() {
+  Array.from(duelMcqChoices.children).forEach((btn) => { btn.disabled = true; });
+}
+function unlockDuelChoices() {
+  Array.from(duelMcqChoices.children).forEach((btn) => { btn.disabled = false; });
+}
+function highlightDuelChoice(chosenIdx, isCorrect) {
+  Array.from(duelMcqChoices.children).forEach((btn, idx) => {
+    if (idx === chosenIdx) btn.classList.add(isCorrect ? "correct" : "wrong");
+  });
+}
+
+duelMcqChoices.addEventListener("click", (e) => {
+  const btn = e.target.closest(".mcq-choice");
+  if (!btn || btn.disabled || duelAnswered) return;
+  submitMyDuelAnswer(Number(btn.dataset.index));
+});
+
+async function submitMyDuelAnswer(choiceIndex) {
+  if (duelAnswered || !duelCurrentQuestion) return;
+  duelAnswered = true;
+  lockDuelChoices();
+
+  const questionIndex = duelCurrentQuestion.question_index;
+  const result = await submitDuelAnswer(duelId, questionIndex, choiceIndex);
+
+  if (!result || !result.ok) {
+    duelAnswered = false; // transient failure — allow retry
+    unlockDuelChoices();
+    return;
+  }
+
+  highlightDuelChoice(choiceIndex, result.isCorrect);
+  showDuelRoundStatus(result);
+
+  // Whoever answers advances the shared round after a short pause —
+  // advance_duel_question() is itself compare-and-swap guarded, so
+  // both players' clients racing to call it is harmless.
+  setTimeout(() => tryAdvanceDuelQuestion(questionIndex), 1400);
+}
+
+function showDuelRoundStatus(result) {
+  duelRoundStatus.style.display = "block";
+  duelRoundStatus.className = "duel-round-status";
+  if (result.timeout) {
+    duelRoundStatus.classList.add("timeout");
+    duelRoundStatus.textContent = "⏱️ انتهى الوقت.";
+  } else if (result.wonPoint) {
+    duelRoundStatus.classList.add("won");
+    duelRoundStatus.textContent = "🎉 أحسنت! أنت الأسرع.";
+  } else if (result.isCorrect) {
+    duelRoundStatus.classList.add("waiting");
+    duelRoundStatus.textContent = "✅ إجابة صحيحة، لكن الخصم كان أسرع.";
+  } else {
+    duelRoundStatus.classList.add("lost");
+    duelRoundStatus.textContent = "❌ إجابة خاطئة.";
+  }
+}
+
+function startDuelTimer(duel) {
+  stopDuelTimer();
+  const sec = duel.timer_seconds || 15;
+  const revealedAt = duel.current_question_revealed_at ? new Date(duel.current_question_revealed_at).getTime() : Date.now();
+  const durationMs = sec * 1000;
+
+  const tick = () => {
+    const elapsed = Date.now() - revealedAt;
+    const pct = clamp((elapsed / durationMs) * 100, 0, 100);
+    duelProgressBar.style.width = pct + "%";
+    if (elapsed >= durationMs) {
+      stopDuelTimer();
+      if (!duelAnswered) {
+        duelAnswered = true;
+        lockDuelChoices();
+        showDuelRoundStatus({ isCorrect: false, wonPoint: false, timeout: true });
+      }
+      tryAdvanceDuelQuestion(duel.current_question_index);
+    }
+  };
+
+  duelTimerInterval = setInterval(tick, 150);
+  tick();
+}
+
+function stopDuelTimer() {
+  if (duelTimerInterval) { clearInterval(duelTimerInterval); duelTimerInterval = null; }
+  duelProgressBar.style.width = "0%";
+}
+
+async function tryAdvanceDuelQuestion(questionIndex) {
+  if (duelAdvancePending) return;
+  duelAdvancePending = true;
+  try {
+    await advanceDuelQuestion(duelId, questionIndex);
+    // No need to act on the result — the realtime subscription
+    // (onDuelStateChangedDuringPlay) delivers the new question index
+    // (or 'finished' status) to both players uniformly.
+  } finally {
+    duelAdvancePending = false;
+  }
+}
+
+function duelAudioStop() {
+  if (duelAudioEl) { duelAudioEl.pause(); duelAudioEl.currentTime = 0; duelAudioEl = null; }
+  duelPlayAudioBtn.textContent = "🔊 استماع";
+  duelPlayAudioBtn.classList.remove("playing");
+}
+
+duelPlayAudioBtn.addEventListener("click", async () => {
+  if (duelAudioEl && !duelAudioEl.paused) { duelAudioStop(); return; }
+  if (!duelCurrentQuestion?.q_ayah_number) return;
+
+  duelPlayAudioBtn.disabled = true;
+  duelPlayAudioBtn.textContent = "⏳ جارٍ التحميل...";
+  try {
+    const url = await fetchAyahAudioUrl(duelCurrentQuestion.q_ayah_number);
+    if (!url) throw new Error("no audio url");
+    duelAudioEl = new Audio(url);
+    duelAudioEl.addEventListener("ended", duelAudioStop);
+    await duelAudioEl.play();
+    duelPlayAudioBtn.textContent = "⏸️ إيقاف";
+    duelPlayAudioBtn.classList.add("playing");
+  } catch (e) {
+    duelAudioStop();
+  } finally {
+    duelPlayAudioBtn.disabled = false;
+  }
+});
+
+duelForfeitBtn.addEventListener("click", async () => {
+  if (!duelId) return;
+  const ok = confirm("هل تريد الاستسلام؟ ستُحتسب هذه خسارة.");
+  if (!ok) return;
+  await forfeitDuel(duelId);
+  // realtime subscription picks up status='finished' → shows results
+});
+
+// -------- results --------
+async function showDuelResults(duel) {
+  duelIsHost = duel.created_by === currentUser.id;
+  const myScore = duelIsHost ? duel.creator_score : duel.opponent_score;
+  const oppScore = duelIsHost ? duel.opponent_score : duel.creator_score;
+
+  let headline;
+  if (duel.forfeited_by) {
+    const iForfeited = duel.forfeited_by === currentUser.id;
+    headline = iForfeited ? "استسلمت — خسارة 💔" : `${duelOpponentName} انسحب — فوز لك! 🏆`;
+  } else if (duel.winner_id === currentUser.id) {
+    headline = "🏆 فزت بالمبارزة!";
+  } else if (duel.winner_id) {
+    headline = "💔 خسرت هذه المرة.";
+  } else {
+    headline = "🤝 تعادل!";
+  }
+
+  const stats = await fetchDuelStats(currentUser.id);
+
+  duelResultsBody.innerHTML = `
+    <div class="stat-summary">
+      <div class="stat-big" style="font-size:20px;">${escapeDuelHtml(headline)}</div>
+      <div class="stat-caption">أنت ${myScore} — ${oppScore} ${escapeDuelHtml(duelOpponentName)}</div>
+    </div>
+    <div class="duel-stats-summary" style="margin-top:6px; border:none; padding-top:0;">
+      <span class="duel-stat-pill wins">🏆 ${stats?.wins || 0} فوز</span>
+      <span class="duel-stat-pill losses">💔 ${stats?.losses || 0} خسارة</span>
+      <span class="duel-stat-pill">🤝 ${stats?.draws || 0} تعادل</span>
+    </div>`;
+
+  stopDuelTimer();
+  duelAudioStop();
+  duelId = null;
+  switchDuelScreen("results");
+}
+
+duelBackToHubBtn.addEventListener("click", async () => {
+  await loadDuelHub();
+  switchDuelScreen("hub");
+});
+
+// -------- handoff from the global invite banner (see auth-ui.js) --------
+// Called after accepting a friend invite, or tapping "انضمام" on a
+// quick-match pairing notification — lands the person on whichever
+// screen the duel actually needs next, regardless of where they were
+// in the app when they accepted.
+async function onDuelInviteAccepted(id) {
+  if (typeof switchView === "function") switchView("challenge");
+  challengeModeToggle.querySelectorAll(".challenge-mode-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.mode === "online");
+  });
+  challengeOfflineWrap.style.display = "none";
+  challengeOnlineWrap.style.display = "block";
+
+  const duel = await fetchDuelState(id);
+  if (!duel) { switchDuelScreen("hub"); return; }
+  await resumeDuel(duel);
+}
+
+// -------- init --------
+renderDuelTypesGrid();
+showHideDuelCustomRange();
+
 generateBtn.addEventListener("click", generateCard);
 
 // Init

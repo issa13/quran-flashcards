@@ -43,12 +43,48 @@ Commit and push `config.js` with your real values, then deploy as
 before (e.g. GitHub Pages). That's it — accounts, settings sync, per
 user stats, and the opt-in leaderboard are live.
 
+## 6. Online duels (⚔️ تحديات → مباشر) — one extra step
+Everything else in the app works from steps 1–5 alone. Live 1v1 duels
+specifically need one Edge Function deployed, because the shared
+question set has to be generated *server-side* — otherwise whichever
+player's browser builds the questions would see the correct answers
+before the official reveal. Offline pass-and-play duels (📴 محلي) don't
+need this at all.
+
+1. Install the Supabase CLI if you don't have it:
+   ```bash
+   npm install -g supabase
+   ```
+2. From this project's folder, log in and link it to your project
+   (find your project ref in **Project Settings → General**):
+   ```bash
+   supabase login
+   supabase link --project-ref your-project-ref
+   ```
+3. Deploy the function:
+   ```bash
+   supabase functions new generate-duel-questions
+   then copy the index.ts to .\supabase\functions\generate-duel-questions
+   supabase functions deploy generate-duel-questions
+   ```
+   No manual secrets needed — Supabase automatically injects
+   `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` into every Edge
+   Function at deploy time.
+4. That's it. Test it by challenging a friend (or yourself, from two
+   browser profiles) from ⚔️ تحديات → مباشر.
+
+If this step is skipped, offline duels, solo mode, stats, friends, and
+the leaderboard all still work fine — starting an online duel will
+just fail with "تعذّر تحضير أسئلة التحدي" until the function is deployed.
+
 ## What's now stored per user
 - `user_settings` — last used question type, timer, and page range,
   synced across every device they log into.
 - `attempts` — every answered flashcard (question type, page, correct
   or not, timestamp) — powers the stats screen.
 - `profiles` — display name and a `show_on_leaderboard` opt-in flag.
+- `duel_stats` — lifetime online-duel wins/losses/draws (⚔️ مباشر only;
+  offline 📴 محلي duels are never saved anywhere).
 
 ## Notes
 - Guests (not signed in) still work exactly as before, with score kept

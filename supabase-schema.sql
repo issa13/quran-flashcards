@@ -1056,6 +1056,716 @@ $$;
 grant execute on function public.get_friend_profile(uuid) to authenticated;
 
 -- ============================================================
+-- ONLINE DUELS (⚔️ live 1v1) — a friend challenge or a random-opponent
+-- "quick match", both players answering the exact same questions in
+-- real time, first correct answer wins the point. Every write that
+-- crosses between two users' rows goes through a security-definer
+-- RPC (same convention as the friend system above) — the base tables
+-- below have SELECT-only policies (or none at all) for `authenticated`.
+--
+-- The one piece NOT handled by an RPC is question generation: that
+-- happens in the generate-duel-questions Edge Function using the
+-- service role key, specifically so neither player's own browser ever
+-- has the correct answers before the official reveal (a client-side
+-- RPC couldn't guarantee that, since the browser that built the
+-- questions would have seen them). See supabase/functions/
+-- generate-duel-questions/index.ts and SETUP.md for deployment.
+-- ============================================================
+
+-- 16) Lifetime duel record (wins/losses/draws) — account-wide, same
+--     "public read, RPC-only write" spirit as user_stats.
+create table if not exists public.duel_stats (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  wins int not null default 0,
+  losses int not null default 0,
+  draws int not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.duel_stats enable row level security;
+
+drop policy if exists "Duel stats are viewable by everyone" on public.duel_stats;
+create policy "Duel stats are viewable by everyone"
+  on public.duel_stats for select
+  using (true);
+
+insert into public.achievements (code, title, description, icon, sort_order) values
+  ('duel_first_win', 'أول انتصار مباشر', 'اربح أول مبارزة مباشرة (⚔️ تحديات) ضد لاعب آخر', '⚔️', 100),
+  ('duel_wins_10',   'مبارز محترف',      'اربح 10 مبارزات مباشرة',                          '🛡️', 101)
+on conflict (code) do nothing;
+
+-- 17) duels: one row per challenge, from invite/queue-match through
+--     to the finished result. RLS only ever lets a participant SELECT
+--     their own duels — every write happens through the RPCs below
+--     (security definer, bypasses RLS) or through the Edge Function
+--     (service role, also bypasses RLS), so a client can never set
+--     its own score, skip straight to 'active', or peek at someone
+--     else's duel.
+create table if not exists public.duels (
+  id bigint generated always as identity primary key,
+  created_by uuid not null references auth.users(id) on delete cascade,
+  opponent_id uuid references auth.users(id) on delete cascade,
+  status text not null default 'pending'
+    check (status in ('pending', 'accepted', 'active', 'finished', 'declined', 'cancelled')),
+  is_quick_match boolean not null default false,
+
+  range_min int not null,
+  range_max int not null,
+  timer_seconds int not null default 15,
+  question_types text[] not null,
+  count_per_type int not null,
+  total_questions int not null default 0,
+
+  current_question_index int not null default -1,
+  current_question_revealed_at timestamptz,
+
+  creator_score int not null default 0,
+  opponent_score int not null default 0,
+  winner_id uuid references auth.users(id),
+  forfeited_by uuid references auth.users(id),
+
+  created_at timestamptz not null default now(),
+  started_at timestamptz,
+  finished_at timestamptz
+);
+
+alter table public.duels enable row level security;
+
+drop policy if exists "Participants can view their duels" on public.duels;
+create policy "Participants can view their duels"
+  on public.duels for select
+  using (auth.uid() = created_by or auth.uid() = opponent_id);
+
+create index if not exists duels_opponent_idx on public.duels (opponent_id);
+create index if not exists duels_created_by_idx on public.duels (created_by);
+
+-- 18) duel_questions: the fixed, shared question set for a duel.
+--     No SELECT policy at all for `authenticated` on the base table —
+--     the ONLY client-facing read path is duel_questions_public below,
+--     which simply never selects correct_index, so it can't leak
+--     regardless of RLS. Rows are inserted only by the Edge Function
+--     (service role).
+create table if not exists public.duel_questions (
+  id bigint generated always as identity primary key,
+  duel_id bigint not null references public.duels(id) on delete cascade,
+  question_index int not null,
+  question_type text not null,
+  page int,
+  q_text text,
+  q_ayah_number int,
+  is_audio_only boolean not null default false,
+  choices text[] not null,
+  correct_index int not null,
+  winner_user_id uuid references auth.users(id), -- set once, atomically, by submit_duel_answer()
+  unique (duel_id, question_index)
+);
+
+alter table public.duel_questions enable row level security;
+-- Intentionally no select/insert/update policy for `authenticated` —
+-- see duel_questions_public and the Edge Function.
+
+create or replace view public.duel_questions_public as
+select dq.id, dq.duel_id, dq.question_index, dq.question_type, dq.page,
+       dq.q_text, dq.q_ayah_number, dq.is_audio_only, dq.choices
+from public.duel_questions dq
+where exists (
+  select 1 from public.duels d
+  where d.id = dq.duel_id and (d.created_by = auth.uid() or d.opponent_id = auth.uid())
+);
+-- correct_index and winner_user_id are deliberately excluded above —
+-- a view only ever returns the columns in its own SELECT list, so
+-- this holds regardless of RLS mode.
+
+grant select on public.duel_questions_public to authenticated;
+
+-- 19) duel_answers: one row per (duel, question, player) — server-
+--     timestamped by clock_timestamp() at INSERT time, which is what
+--     makes "who answered first" a database fact instead of a claim
+--     from whichever client's message happened to arrive first. Only
+--     ever written by submit_duel_answer() below.
+create table if not exists public.duel_answers (
+  id bigint generated always as identity primary key,
+  duel_id bigint not null references public.duels(id) on delete cascade,
+  question_index int not null,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  choice_index int not null,
+  is_correct boolean not null,
+  answered_at timestamptz not null default clock_timestamp(),
+  unique (duel_id, question_index, user_id)
+);
+
+alter table public.duel_answers enable row level security;
+
+drop policy if exists "Participants can view duel answers" on public.duel_answers;
+create policy "Participants can view duel answers"
+  on public.duel_answers for select
+  using (exists (
+    select 1 from public.duels d
+    where d.id = duel_answers.duel_id and (d.created_by = auth.uid() or d.opponent_id = auth.uid())
+  ));
+
+-- 20) duel_queue: quick-match waiting room. A row here means "I'm
+--     waiting for an opponent with this exact config." Matching only
+--     pairs identical configs (see join_quick_match_queue() below) —
+--     no fuzzy/partial matching, so two players only ever get paired
+--     into a duel whose settings both of them actually chose.
+create table if not exists public.duel_queue (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  range_min int not null,
+  range_max int not null,
+  timer_seconds int not null default 15,
+  question_types text[] not null,
+  count_per_type int not null,
+  joined_at timestamptz not null default now()
+);
+
+alter table public.duel_queue enable row level security;
+
+drop policy if exists "Users can view their own queue row" on public.duel_queue;
+create policy "Users can view their own queue row"
+  on public.duel_queue for select
+  using (auth.uid() = user_id);
+-- No insert/update/delete policy — join/leave both go through RPCs
+-- below, so matching stays atomic (see join_quick_match_queue()).
+
+-- 21) create_friend_duel(): sends a challenge to an accepted friend.
+--     Reuses the same "are they actually friends" check as the friend
+--     system's own RPCs.
+create or replace function public.create_friend_duel(
+  p_opponent_id uuid,
+  p_range_min int,
+  p_range_max int,
+  p_timer_seconds int,
+  p_question_types text[],
+  p_count_per_type int
+)
+returns bigint
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_is_friend boolean;
+  v_duel_id bigint;
+begin
+  if v_uid is null or p_opponent_id is null or v_uid = p_opponent_id then
+    raise exception 'invalid_opponent';
+  end if;
+
+  select exists(
+    select 1 from public.friend_requests
+    where status = 'accepted'
+      and ((from_user_id = v_uid and to_user_id = p_opponent_id)
+        or (from_user_id = p_opponent_id and to_user_id = v_uid))
+  ) into v_is_friend;
+  if not v_is_friend then
+    raise exception 'not_friends';
+  end if;
+
+  if p_question_types is null or array_length(p_question_types, 1) < 3 then
+    raise exception 'need_at_least_3_types';
+  end if;
+  if p_count_per_type not in (3, 5, 8) then
+    raise exception 'invalid_count';
+  end if;
+  if p_range_min is null or p_range_max is null or p_range_min < 1 or p_range_max > 604 or p_range_min >= p_range_max then
+    raise exception 'invalid_range';
+  end if;
+
+  insert into public.duels (
+    created_by, opponent_id, status, is_quick_match,
+    range_min, range_max, timer_seconds, question_types, count_per_type
+  ) values (
+    v_uid, p_opponent_id, 'pending', false,
+    p_range_min, p_range_max, coalesce(p_timer_seconds, 15), p_question_types, p_count_per_type
+  )
+  returning id into v_duel_id;
+
+  return v_duel_id;
+end;
+$$;
+
+grant execute on function public.create_friend_duel(uuid, int, int, int, text[], int) to authenticated;
+
+-- 21b) create_direct_duel(): same as create_friend_duel() but WITHOUT
+--     the friendship check — used specifically for challenging someone
+--     off the "اللاعبون المتصلون الآن" presence list, who's currently
+--     live in the app but not necessarily an added friend. Both people
+--     being simultaneously present is the trust signal here, not a
+--     prior friend connection.
+create or replace function public.create_direct_duel(
+  p_opponent_id uuid,
+  p_range_min int,
+  p_range_max int,
+  p_timer_seconds int,
+  p_question_types text[],
+  p_count_per_type int
+)
+returns bigint
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_duel_id bigint;
+begin
+  if v_uid is null or p_opponent_id is null or v_uid = p_opponent_id then
+    raise exception 'invalid_opponent';
+  end if;
+  if not exists (select 1 from public.profiles where id = p_opponent_id) then
+    raise exception 'opponent_not_found';
+  end if;
+
+  if p_question_types is null or array_length(p_question_types, 1) < 3 then
+    raise exception 'need_at_least_3_types';
+  end if;
+  if p_count_per_type not in (3, 5, 8) then
+    raise exception 'invalid_count';
+  end if;
+  if p_range_min is null or p_range_max is null or p_range_min < 1 or p_range_max > 604 or p_range_min >= p_range_max then
+    raise exception 'invalid_range';
+  end if;
+
+  insert into public.duels (
+    created_by, opponent_id, status, is_quick_match,
+    range_min, range_max, timer_seconds, question_types, count_per_type
+  ) values (
+    v_uid, p_opponent_id, 'pending', false,
+    p_range_min, p_range_max, coalesce(p_timer_seconds, 15), p_question_types, p_count_per_type
+  )
+  returning id into v_duel_id;
+
+  return v_duel_id;
+end;
+$$;
+
+grant execute on function public.create_direct_duel(uuid, int, int, int, text[], int) to authenticated;
+
+-- 22) respond_duel_invite(): the invitee accepts or declines. On
+--     accept, status becomes 'accepted' — the CREATOR's client is
+--     responsible for then calling the generate-duel-questions Edge
+--     Function, which flips status to 'active' once questions exist.
+create or replace function public.respond_duel_invite(p_duel_id bigint, p_accept boolean)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_updated int;
+begin
+  update public.duels
+  set status = case when p_accept then 'accepted' else 'declined' end
+  where id = p_duel_id and opponent_id = v_uid and status = 'pending';
+
+  get diagnostics v_updated = row_count;
+  if v_updated = 0 then
+    return jsonb_build_object('ok', false);
+  end if;
+  return jsonb_build_object('ok', true, 'status', case when p_accept then 'accepted' else 'declined' end);
+end;
+$$;
+
+grant execute on function public.respond_duel_invite(bigint, boolean) to authenticated;
+
+-- 23) cancel_duel(): the creator can withdraw an invite that hasn't
+--     started playing yet (still 'pending' or 'accepted').
+create or replace function public.cancel_duel(p_duel_id bigint)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.duels
+  set status = 'cancelled'
+  where id = p_duel_id and created_by = auth.uid() and status in ('pending', 'accepted');
+  return found;
+end;
+$$;
+
+grant execute on function public.cancel_duel(bigint) to authenticated;
+
+-- 24) join_quick_match_queue(): only pairs EXACT-config matches (same
+--     range/timer/types/count — types normalized to a sorted array so
+--     checkbox order never matters), so nobody ever ends up in a duel
+--     with settings they didn't actually choose. `for update skip
+--     locked` means two people joining at the same instant can't both
+--     grab the same waiting row. The caller becomes the host
+--     (created_by, generates questions); whoever was already waiting
+--     becomes opponent_id, which is what lets them be notified
+--     through the same realtime path as a friend invite.
+create or replace function public.join_quick_match_queue(
+  p_range_min int,
+  p_range_max int,
+  p_timer_seconds int,
+  p_question_types text[],
+  p_count_per_type int
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_types text[];
+  v_match record;
+  v_duel_id bigint;
+begin
+  if p_question_types is null or array_length(p_question_types, 1) < 3 then
+    raise exception 'need_at_least_3_types';
+  end if;
+  if p_count_per_type not in (3, 5, 8) then
+    raise exception 'invalid_count';
+  end if;
+  if p_range_min is null or p_range_max is null or p_range_min < 1 or p_range_max > 604 or p_range_min >= p_range_max then
+    raise exception 'invalid_range';
+  end if;
+
+  select array(select unnest(p_question_types) order by 1) into v_types;
+
+  delete from public.duel_queue where user_id = v_uid;
+
+  select * into v_match
+  from public.duel_queue
+  where user_id <> v_uid
+    and range_min = p_range_min
+    and range_max = p_range_max
+    and timer_seconds = coalesce(p_timer_seconds, 15)
+    and count_per_type = p_count_per_type
+    and question_types = v_types
+  order by joined_at asc
+  limit 1
+  for update skip locked;
+
+  if v_match.user_id is not null then
+    delete from public.duel_queue where user_id = v_match.user_id;
+
+    insert into public.duels (
+      created_by, opponent_id, status, is_quick_match,
+      range_min, range_max, timer_seconds, question_types, count_per_type
+    ) values (
+      v_uid, v_match.user_id, 'accepted', true,
+      p_range_min, p_range_max, coalesce(p_timer_seconds, 15), v_types, p_count_per_type
+    )
+    returning id into v_duel_id;
+
+    return jsonb_build_object('matched', true, 'duelId', v_duel_id, 'isHost', true);
+  end if;
+
+  insert into public.duel_queue (
+    user_id, range_min, range_max, timer_seconds, question_types, count_per_type
+  ) values (
+    v_uid, p_range_min, p_range_max, coalesce(p_timer_seconds, 15), v_types, p_count_per_type
+  );
+
+  return jsonb_build_object('matched', false);
+end;
+$$;
+
+grant execute on function public.join_quick_match_queue(int, int, int, text[], int) to authenticated;
+
+-- Called both when someone deliberately cancels waiting, and by the
+-- matched-with side to clean up their own row (see join above).
+create or replace function public.leave_quick_match_queue()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from public.duel_queue where user_id = auth.uid();
+end;
+$$;
+
+grant execute on function public.leave_quick_match_queue() to authenticated;
+
+-- 25) submit_duel_answer(): the entire fairness mechanism lives here.
+--     correct_index is read server-side and never was, and never will
+--     be, sent to the client before this call. The UPDATE ... WHERE
+--     winner_user_id IS NULL is what makes "first correct answer"
+--     a fact the database enforces via its own row lock, rather than
+--     a race between whichever client's HTTP request the server
+--     happened to process first.
+create or replace function public.submit_duel_answer(
+  p_duel_id bigint,
+  p_question_index int,
+  p_choice_index int
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_duel record;
+  v_correct_index int;
+  v_is_correct boolean;
+  v_already record;
+  v_claimed bigint;
+  v_won boolean := false;
+begin
+  select * into v_duel from public.duels where id = p_duel_id;
+  if v_duel.id is null or v_duel.status <> 'active' or v_uid not in (v_duel.created_by, v_duel.opponent_id) then
+    raise exception 'not_your_duel';
+  end if;
+  if v_duel.current_question_index <> p_question_index then
+    raise exception 'stale_question';
+  end if;
+
+  select id, is_correct into v_already
+  from public.duel_answers
+  where duel_id = p_duel_id and question_index = p_question_index and user_id = v_uid;
+
+  if v_already.id is not null then
+    return jsonb_build_object('ok', true, 'alreadyAnswered', true, 'isCorrect', v_already.is_correct);
+  end if;
+
+  select correct_index into v_correct_index
+  from public.duel_questions
+  where duel_id = p_duel_id and question_index = p_question_index;
+  if v_correct_index is null then
+    raise exception 'question_not_found';
+  end if;
+
+  v_is_correct := (p_choice_index = v_correct_index);
+
+  insert into public.duel_answers (duel_id, question_index, user_id, choice_index, is_correct)
+  values (p_duel_id, p_question_index, v_uid, p_choice_index, v_is_correct);
+
+  if v_is_correct then
+    update public.duel_questions
+    set winner_user_id = v_uid
+    where duel_id = p_duel_id and question_index = p_question_index and winner_user_id is null
+    returning id into v_claimed;
+
+    if v_claimed is not null then
+      v_won := true;
+      update public.duels
+      set creator_score = creator_score + (case when v_uid = created_by then 1 else 0 end),
+          opponent_score = opponent_score + (case when v_uid = opponent_id then 1 else 0 end)
+      where id = p_duel_id;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'ok', true, 'alreadyAnswered', false,
+    'isCorrect', v_is_correct, 'wonPoint', v_won, 'correctIndex', v_correct_index
+  );
+end;
+$$;
+
+grant execute on function public.submit_duel_answer(bigint, int, int) to authenticated;
+
+-- 26) advance_duel_question(): moves both players to the next
+--     question (compare-and-swap on current_question_index, so a
+--     near-simultaneous call from both clients is a harmless no-op
+--     the second time), or finalizes the duel on the last question —
+--     deciding the winner by score (a tie is recorded as a draw for
+--     both, no sudden-death round), updating duel_stats, and awarding
+--     the duel achievements.
+create or replace function public.advance_duel_question(p_duel_id bigint, p_question_index int)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_duel record;
+  v_is_last boolean;
+  v_winner uuid;
+  v_loser uuid;
+  v_code text;
+  v_wins int;
+  v_earned text[] := '{}';
+begin
+  select * into v_duel from public.duels where id = p_duel_id for update;
+  if v_duel.id is null or v_duel.status <> 'active' or v_uid not in (v_duel.created_by, v_duel.opponent_id) then
+    raise exception 'not_your_duel';
+  end if;
+
+  if v_duel.current_question_index <> p_question_index then
+    return jsonb_build_object('ok', true, 'alreadyAdvanced', true, 'finished', v_duel.status = 'finished');
+  end if;
+
+  v_is_last := (p_question_index + 1 >= v_duel.total_questions);
+
+  if not v_is_last then
+    update public.duels
+    set current_question_index = p_question_index + 1,
+        current_question_revealed_at = clock_timestamp()
+    where id = p_duel_id and current_question_index = p_question_index;
+
+    return jsonb_build_object('ok', true, 'finished', false, 'newIndex', p_question_index + 1);
+  end if;
+
+  if v_duel.creator_score > v_duel.opponent_score then
+    v_winner := v_duel.created_by; v_loser := v_duel.opponent_id;
+  elsif v_duel.opponent_score > v_duel.creator_score then
+    v_winner := v_duel.opponent_id; v_loser := v_duel.created_by;
+  end if;
+
+  update public.duels
+  set status = 'finished', finished_at = clock_timestamp(), winner_id = v_winner
+  where id = p_duel_id and current_question_index = p_question_index;
+
+  if v_winner is not null then
+    insert into public.duel_stats (user_id, wins) values (v_winner, 1)
+      on conflict (user_id) do update set wins = public.duel_stats.wins + 1, updated_at = now();
+    insert into public.duel_stats (user_id, losses) values (v_loser, 1)
+      on conflict (user_id) do update set losses = public.duel_stats.losses + 1, updated_at = now();
+
+    select wins into v_wins from public.duel_stats where user_id = v_winner;
+
+    v_code := null;
+    insert into public.user_achievements (user_id, code) values (v_winner, 'duel_first_win')
+      on conflict do nothing returning code into v_code;
+    if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
+
+    if coalesce(v_wins, 0) >= 10 then
+      v_code := null;
+      insert into public.user_achievements (user_id, code) values (v_winner, 'duel_wins_10')
+        on conflict do nothing returning code into v_code;
+      if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
+    end if;
+  else
+    insert into public.duel_stats (user_id, draws) values (v_duel.created_by, 1)
+      on conflict (user_id) do update set draws = public.duel_stats.draws + 1, updated_at = now();
+    insert into public.duel_stats (user_id, draws) values (v_duel.opponent_id, 1)
+      on conflict (user_id) do update set draws = public.duel_stats.draws + 1, updated_at = now();
+  end if;
+
+  return jsonb_build_object('ok', true, 'finished', true, 'winnerId', v_winner, 'earnedByWinner', to_jsonb(v_earned));
+end;
+$$;
+
+grant execute on function public.advance_duel_question(bigint, int) to authenticated;
+
+-- 27) forfeit_duel(): voluntary surrender by a participant, at any
+--     point after the invite's been accepted (not for a still-pending
+--     invite — that's cancel_duel/decline instead, and records no
+--     loss since the duel never actually started).
+create or replace function public.forfeit_duel(p_duel_id bigint)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_duel record;
+  v_winner uuid;
+begin
+  select * into v_duel from public.duels where id = p_duel_id for update;
+  if v_duel.id is null or v_uid not in (v_duel.created_by, v_duel.opponent_id) then
+    raise exception 'not_your_duel';
+  end if;
+  if v_duel.status not in ('accepted', 'active') then
+    return jsonb_build_object('ok', false);
+  end if;
+
+  v_winner := case when v_uid = v_duel.created_by then v_duel.opponent_id else v_duel.created_by end;
+
+  update public.duels
+  set status = 'finished', finished_at = clock_timestamp(), winner_id = v_winner, forfeited_by = v_uid
+  where id = p_duel_id;
+
+  if v_winner is not null then
+    insert into public.duel_stats (user_id, wins) values (v_winner, 1)
+      on conflict (user_id) do update set wins = public.duel_stats.wins + 1, updated_at = now();
+    insert into public.duel_stats (user_id, losses) values (v_uid, 1)
+      on conflict (user_id) do update set losses = public.duel_stats.losses + 1, updated_at = now();
+  end if;
+
+  return jsonb_build_object('ok', true, 'winnerId', v_winner);
+end;
+$$;
+
+grant execute on function public.forfeit_duel(bigint) to authenticated;
+
+-- 28) claim_opponent_forfeit(): for when the other player just
+--     vanishes (closed the tab, lost connection) instead of formally
+--     surrendering. Self-verified server-side — a generous grace
+--     window (3 full timer rounds, minimum 15s each, plus a flat 15s)
+--     since the current question was revealed, with no progress —
+--     so a caller can't just fabricate an instant claim; the database
+--     checks the actual elapsed time itself.
+create or replace function public.claim_opponent_forfeit(p_duel_id bigint)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_duel record;
+  v_opponent uuid;
+  v_grace_seconds int;
+  v_reference timestamptz;
+begin
+  select * into v_duel from public.duels where id = p_duel_id for update;
+  if v_duel.id is null or v_uid not in (v_duel.created_by, v_duel.opponent_id) then
+    raise exception 'not_your_duel';
+  end if;
+  if v_duel.status <> 'active' then
+    return jsonb_build_object('ok', false, 'reason', 'not_active');
+  end if;
+
+  v_opponent := case when v_uid = v_duel.created_by then v_duel.opponent_id else v_duel.created_by end;
+  v_grace_seconds := greatest(v_duel.timer_seconds, 5) * 3 + 15;
+  v_reference := coalesce(v_duel.current_question_revealed_at, v_duel.started_at, v_duel.created_at);
+
+  if v_reference is null or clock_timestamp() - v_reference < make_interval(secs => v_grace_seconds) then
+    return jsonb_build_object('ok', false, 'reason', 'too_soon');
+  end if;
+
+  update public.duels
+  set status = 'finished', finished_at = clock_timestamp(), winner_id = v_uid, forfeited_by = v_opponent
+  where id = p_duel_id and status = 'active';
+
+  if not found then
+    return jsonb_build_object('ok', false, 'reason', 'already_resolved');
+  end if;
+
+  insert into public.duel_stats (user_id, wins) values (v_uid, 1)
+    on conflict (user_id) do update set wins = public.duel_stats.wins + 1, updated_at = now();
+  insert into public.duel_stats (user_id, losses) values (v_opponent, 1)
+    on conflict (user_id) do update set losses = public.duel_stats.losses + 1, updated_at = now();
+
+  return jsonb_build_object('ok', true, 'winnerId', v_uid);
+end;
+$$;
+
+grant execute on function public.claim_opponent_forfeit(bigint) to authenticated;
+
+-- 29) Pull-based fallback views (same spirit as
+--     my_incoming_friend_requests) — checked whenever the ⚔️ تحديات
+--     tab opens, so an invite or an active duel is never missed just
+--     because the realtime channel wasn't connected at the moment it
+--     happened.
+create or replace view public.my_incoming_duel_invites as
+select d.id, d.created_by, p.display_name as from_display_name, d.status, d.is_quick_match,
+       d.range_min, d.range_max, d.timer_seconds, d.question_types, d.count_per_type, d.created_at
+from public.duels d
+join public.profiles p on p.id = d.created_by
+where d.opponent_id = auth.uid() and d.status in ('pending', 'accepted');
+
+create or replace view public.my_active_duels as
+select d.*,
+       case when d.created_by = auth.uid() then op.display_name else cr.display_name end as opponent_display_name
+from public.duels d
+left join public.profiles cr on cr.id = d.created_by
+left join public.profiles op on op.id = d.opponent_id
+where (d.created_by = auth.uid() or d.opponent_id = auth.uid())
+  and d.status in ('accepted', 'active');
+
+-- ============================================================
 -- Done. Next steps:
 -- 1. Project Settings → API → copy "Project URL" and "anon public" key
 -- 2. Paste them into config.js in the app (SUPABASE_URL must be just
@@ -1063,4 +1773,9 @@ grant execute on function public.get_friend_profile(uuid) to authenticated;
 -- 3. Authentication → Providers → make sure Email is enabled
 --    (Authentication → URL Configuration → add your site URL,
 --    e.g. https://yourname.github.io/quran-flashcards, to Redirect URLs)
+-- 4. For online duels (⚔️ تحديات → مباشر) specifically: deploy the
+--    generate-duel-questions Edge Function (supabase/functions/
+--    generate-duel-questions/) — see SETUP.md for the exact command.
+--    Everything else in this file works without it; only starting an
+--    online duel needs it.
 -- ============================================================

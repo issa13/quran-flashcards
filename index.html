@@ -308,14 +308,23 @@
     </div>
 
     <!-- ==================================================================
-         CHALLENGE VIEW (⚔️ تحديات) — offline, pass-and-play, up to 4
-         players on one device. Fully client-side/ephemeral: nothing
-         here is saved, and none of it needs an account. Three "pages"
-         inside one tab, same back/forward pattern as the friends view:
-         setup → play (buzzer) → results.
+         CHALLENGE VIEW (⚔️ تحديات) — two modes:
+         محلي (offline pass-and-play, up to 4 players on one device,
+         fully ephemeral) and مباشر (online 1v1, friend or random
+         opponent, real accounts, saved win/loss record). Same
+         back/forward "pages inside one tab" pattern as the friends
+         view throughout.
          ================================================================== -->
     <div id="view-challenge" class="app-view">
       <div class="view-card">
+
+        <div class="challenge-mode-toggle" id="challengeModeToggle">
+          <button type="button" class="challenge-mode-btn active" data-mode="offline">📴 محلي</button>
+          <button type="button" class="challenge-mode-btn" data-mode="online">🌐 مباشر</button>
+        </div>
+
+        <!-- ================= OFFLINE MODE (existing, unchanged) ================= -->
+        <div id="challengeOfflineWrap">
 
         <!-- ---- 1) setup ---- -->
         <div id="challengeSetupSection">
@@ -447,9 +456,178 @@
           <button id="challengeNewBtn" class="btn primary" style="margin-top:14px; width:100%;">تحدٍّ جديد</button>
         </div>
 
+        </div>
+        <!-- ================= /OFFLINE MODE ================= -->
+
+        <!-- ================= ONLINE MODE (⚔️ مباشر) ================= -->
+        <div id="challengeOnlineWrap" style="display:none;">
+
+          <!-- guests can't play online (no identity for a fair 1v1 record) -->
+          <div id="duelGuestNotice" style="display:none;">
+            <div class="challenge-type-intro">
+              <div class="challenge-type-intro-icon">🔒</div>
+              <div class="challenge-type-intro-desc">سجّل الدخول لتتمكن من تحدي أصدقائك أو لاعبين آخرين مباشرة، وحفظ سجل انتصاراتك.</div>
+            </div>
+          </div>
+
+          <!-- ---- hub: your record + challenge a friend / quick match / who's online ---- -->
+          <div id="duelHubSection" style="display:none;">
+            <div class="view-head">
+              <div class="view-title">🌐 التحدي المباشر</div>
+            </div>
+
+            <div id="duelStatsSummary" class="duel-stats-summary"></div>
+
+            <div class="section-label">تحدَّ صديقًا</div>
+            <div id="duelFriendsList" class="duel-friends-list">
+              <div class="status">جاري التحميل...</div>
+            </div>
+
+            <div class="section-label">مباراة سريعة</div>
+            <div class="hint" style="margin-bottom:8px;">اختر إعداداتك وسنطابقك مع أول لاعب آخر يبحث بنفس الإعدادات بالضبط.</div>
+            <button id="duelQuickMatchBtn" type="button" class="btn primary" style="width:100%;">🔀 ابحث عن خصم</button>
+
+            <div class="section-label">اللاعبون المتصلون الآن</div>
+            <div id="duelOnlineList" class="duel-online-list">
+              <div class="status">لا أحد متصل الآن.</div>
+            </div>
+          </div>
+
+          <!-- ---- shared config form: friend challenge or quick match ---- -->
+          <div id="duelConfigSection" style="display:none;">
+            <div class="view-head">
+              <button id="duelConfigBackBtn" type="button" class="btn small ghost">→ رجوع</button>
+              <div class="view-title" id="duelConfigTitle">إعداد التحدي</div>
+            </div>
+
+            <div class="row" style="margin-top:10px;">
+              <div class="field">
+                <label for="duelRangeSelect">نطاق الصفحات</label>
+                <select id="duelRangeSelect">
+                  <option value="custom">نطاق مخصص</option>
+                  <option value="all">كل المصحف (1–604)</option>
+                  <option value="first100">أول 100 صفحة (1–100)</option>
+                  <option value="sabatawal">السبع الطوال (البقرة–التوبة)</option>
+                  <option value="juz1">الجزء الأول (1–21)</option>
+                  <option value="juz27">جزء الذاريات (27)</option>
+                  <option value="juz28">جزء قد سمع (28)</option>
+                  <option value="juz29">جزء تبارك (29)</option>
+                  <option value="juz30">جزء عم (30)</option>
+                  <option value="baqarah">سورة البقرة</option>
+                  <option value="imran">سورة آل عمران</option>
+                  <option value="nisa">سورة النساء</option>
+                  <option value="maidah">سورة المائدة</option>
+                  <option value="anam">سورة الأنعام</option>
+                  <option value="anfal">سورة الأنفال</option>
+                  <option value="tawbah">سورة التوبة</option>
+                  <option value="zahrawain">الزهراوين (البقرة + آل عمران)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="duelTimerSelect">المؤقت</label>
+                <select id="duelTimerSelect">
+                  <option value="5">5 ثواني</option>
+                  <option value="10">10 ثواني</option>
+                  <option value="12">12 ثانية</option>
+                  <option value="15" selected>15 ثانية</option>
+                  <option value="20">20 ثانية</option>
+                  <option value="30">30 ثانية</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="duelCustomRangeRow" class="row" style="margin-top: 10px; display:none;">
+              <div class="field">
+                <label for="duelCustomMin">من صفحة</label>
+                <input id="duelCustomMin" type="number" min="1" max="604" value="1">
+              </div>
+              <div class="field">
+                <label for="duelCustomMax">إلى صفحة</label>
+                <input id="duelCustomMax" type="number" min="1" max="604" value="604">
+              </div>
+            </div>
+
+            <div class="field" style="margin-top:14px;">
+              <label>أنواع الأسئلة (اختر 3 على الأقل)</label>
+              <div id="duelTypesGrid" class="challenge-types-grid"></div>
+            </div>
+
+            <div class="field" style="margin-top:14px; max-width:200px;">
+              <label for="duelCountSelect">عدد الأسئلة لكل نوع</label>
+              <select id="duelCountSelect">
+                <option value="3">3</option>
+                <option value="5" selected>5</option>
+                <option value="8">8</option>
+              </select>
+            </div>
+
+            <button id="duelSubmitBtn" type="button" class="btn primary" style="margin-top:16px; width:100%;" disabled>إرسال التحدي</button>
+            <div id="duelConfigError" class="status" style="margin-top:8px;"></div>
+          </div>
+
+          <!-- ---- waiting: for a friend's response, for a quick-match pairing,
+               or for the host to finish preparing questions ---- -->
+          <div id="duelWaitingSection" style="display:none;">
+            <div class="view-head"><div class="view-title" id="duelWaitingTitle">بانتظار...</div></div>
+            <div class="challenge-type-intro">
+              <div class="challenge-type-intro-icon">⏳</div>
+              <div class="challenge-type-intro-desc" id="duelWaitingDesc"></div>
+            </div>
+            <button id="duelWaitingCancelBtn" type="button" class="btn small ghost" style="width:100%; margin-top:14px;">إلغاء</button>
+          </div>
+
+          <!-- ---- live play ---- -->
+          <div id="duelPlaySection" style="display:none;">
+            <div class="view-head">
+              <div class="view-title">⚔️ المبارزة جارية</div>
+              <div id="duelProgressLabel" class="challenge-progress-label"></div>
+            </div>
+
+            <div id="duelScoreboard" class="duel-scoreboard"></div>
+
+            <div class="progress-wrap" style="margin: 12px auto; width:100%;">
+              <div id="duelProgressBar" class="progress-bar"></div>
+            </div>
+
+            <div id="duelFlashcard" class="mcq-card">
+              <div class="helper" id="duelCardHelp"></div>
+              <div class="text" id="duelQText">—</div>
+              <button id="duelPlayAudioBtn" type="button" class="btn small ghost audio-btn" style="display:none;">🔊 استماع</button>
+              <div class="sub" id="duelSub">اختر الإجابة الصحيحة بأسرع ما يمكن</div>
+              <div id="duelMcqChoices" class="mcq-choices"></div>
+            </div>
+
+            <div id="duelRoundStatus" class="duel-round-status" style="display:none;"></div>
+
+            <button id="duelForfeitBtn" type="button" class="btn small ghost danger" style="margin-top:14px; width:100%;">🏳️ الاستسلام</button>
+          </div>
+
+          <!-- ---- results ---- -->
+          <div id="duelResultsSection" style="display:none;">
+            <div class="view-head"><div class="view-title">🏁 نتيجة المبارزة</div></div>
+            <div id="duelResultsBody" class="stats-body"></div>
+            <button id="duelBackToHubBtn" type="button" class="btn primary" style="margin-top:14px; width:100%;">العودة</button>
+          </div>
+
+        </div>
+        <!-- ================= /ONLINE MODE ================= -->
+
       </div>
     </div>
 
+  </div>
+
+  <!-- Global incoming-duel-invite banner — appears wherever the person
+       is in the app, in real time (see subscribeToIncomingDuelInvites
+       in supabase-client.js). Not a modal: it's a slide-down banner
+       they can act on or dismiss without losing their place. -->
+  <div id="duelInviteBanner" class="duel-invite-banner" style="display:none;">
+    <div class="duel-invite-banner-icon">⚔️</div>
+    <div class="duel-invite-banner-text">
+      <div class="duel-invite-banner-title" id="duelInviteBannerTitle"></div>
+      <div class="duel-invite-banner-desc" id="duelInviteBannerDesc"></div>
+    </div>
+    <div class="duel-invite-banner-actions" id="duelInviteBannerActions"></div>
   </div>
 
   <!-- Level-up celebration overlay (auth-ui.js shows/hides this briefly
