@@ -288,13 +288,25 @@ function hideDuelInviteBanner() {
   if (duelInviteBanner) duelInviteBanner.style.display = "none";
 }
 
+// Summarizes a duel's settings (range/timer/types/count) so the
+// recipient of an invite — or someone about to join an already-
+// matched quick match — knows exactly what they're accepting instead
+// of finding out only after the first question appears.
+function describeDuelConfig(cfg) {
+  if (cfg.range_min == null || cfg.range_max == null) return "";
+  const typeCount = (cfg.question_types || []).length;
+  const totalQ = typeCount * (cfg.count_per_type || 0);
+  return `📖 الصفحات ${cfg.range_min}–${cfg.range_max} · ⏱️ ${cfg.timer_seconds} ث · ${totalQ} سؤال (${typeCount} أنواع)`;
+}
+
 function renderDuelInviteBanner(invite) {
   if (!duelInviteBanner) return;
   duelInviteBannerActions.innerHTML = "";
+  const configLine = describeDuelConfig(invite);
 
   if (invite.status === "pending") {
     duelInviteBannerTitle.textContent = `⚔️ ${invite.from_display_name || "لاعب"} يتحداك!`;
-    duelInviteBannerDesc.textContent = "تحدٍّ مباشر — هل تقبل؟";
+    duelInviteBannerDesc.textContent = configLine || "تحدٍّ مباشر — هل تقبل؟";
 
     const acceptBtn = document.createElement("button");
     acceptBtn.type = "button";
@@ -321,7 +333,7 @@ function renderDuelInviteBanner(invite) {
     duelInviteBannerActions.appendChild(declineBtn);
   } else if (invite.status === "accepted") {
     duelInviteBannerTitle.textContent = "⚔️ تم إيجاد خصم!";
-    duelInviteBannerDesc.textContent = "اضغط للانضمام إلى المبارزة.";
+    duelInviteBannerDesc.textContent = configLine || "اضغط للانضمام إلى المبارزة.";
 
     const joinBtn = document.createElement("button");
     joinBtn.type = "button";
@@ -339,9 +351,10 @@ function renderDuelInviteBanner(invite) {
   duelInviteBanner.style.display = "flex";
 }
 
-// Normalizes a raw realtime INSERT payload (no joined display name)
-// into the same shape renderDuelInviteBanner() expects from the
-// pull-based fallback view (my_incoming_duel_invites).
+// Normalizes a raw realtime INSERT payload into the same shape
+// renderDuelInviteBanner() expects from the pull-based fallback view
+// (my_incoming_duel_invites) — the raw row already carries every
+// config column, just no joined display name.
 async function handleIncomingDuelRow(row) {
   const fromName = (typeof fetchDisplayName === "function") ? await fetchDisplayName(row.created_by) : null;
   renderDuelInviteBanner({
@@ -350,6 +363,11 @@ async function handleIncomingDuelRow(row) {
     from_display_name: fromName || "لاعب",
     status: row.status,
     is_quick_match: row.is_quick_match,
+    range_min: row.range_min,
+    range_max: row.range_max,
+    timer_seconds: row.timer_seconds,
+    question_types: row.question_types,
+    count_per_type: row.count_per_type,
   });
 }
 

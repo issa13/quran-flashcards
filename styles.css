@@ -1226,6 +1226,12 @@ select:focus, input:focus {
   flex: 0 0 auto;
   box-shadow: 0 0 0 3px rgba(var(--success-rgb), 0.18);
 }
+.duel-person-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
 
 /* -------- Live duel play -------- */
 .duel-scoreboard {
@@ -1260,6 +1266,11 @@ select:focus, input:focus {
   font-size: 22px;
   font-weight: 900;
   color: var(--accent-text);
+}
+.duel-scoreboard-add-friend {
+  margin-top: 4px;
+  padding: 3px 9px;
+  font-size: 10px;
 }
 .duel-score-vs {
   font-family: 'Aref Ruqaa', serif;

@@ -421,9 +421,13 @@ Deno.serve(async (req: Request) => {
 
     const types: string[] = duel.question_types || [];
     const countPerType: number = duel.count_per_type || 5;
-    const queue = shuffle(
-      types.flatMap((t) => Array(countPerType).fill(t)) as string[]
-    );
+    // Groups into same-type blocks (block order shuffled, not
+    // individual questions) — mirrors app.js's offline-mode
+    // buildChallengeQueue, so the type doesn't change unpredictably
+    // every single question. advance_duel_question() adds a short
+    // synced pre-roll whenever the type is about to change.
+    const orderedTypes = shuffle(types);
+    const queue: string[] = orderedTypes.flatMap((t) => Array(countPerType).fill(t));
 
     const generated: GeneratedQuestion[] = [];
     for (const type of queue) {
@@ -462,7 +466,10 @@ Deno.serve(async (req: Request) => {
         status: "active",
         total_questions: rows.length,
         current_question_index: 0,
-        current_question_revealed_at: new Date().toISOString(),
+        // Same 3s "get ready" pre-roll advance_duel_question() gives
+        // every type change — the first question is always a type
+        // change from "nothing yet".
+        current_question_revealed_at: new Date(Date.now() + 3000).toISOString(),
         started_at: duel.started_at || new Date().toISOString(),
       })
       .eq("id", duelId)

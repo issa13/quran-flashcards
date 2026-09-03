@@ -390,6 +390,19 @@ async function sendFriendRequest(friendCode) {
   return data || { ok: false, error: "request_failed" };
 }
 
+// Same as sendFriendRequest, but for adding someone straight from the
+// online duel lobby/play screen, where their user id is already known
+// directly and asking them to share a friend_code would be redundant.
+async function sendFriendRequestByUserId(userId) {
+  if (!sb || !currentUser) return { ok: false, error: "not_signed_in" };
+  const { data, error } = await sb.rpc("send_friend_request_by_user_id", { p_target_user_id: userId });
+  if (error) {
+    console.error("sendFriendRequestByUserId error", error);
+    return { ok: false, error: "request_failed" };
+  }
+  return data || { ok: false, error: "request_failed" };
+}
+
 async function respondFriendRequest(requestId, accept) {
   if (!sb || !currentUser) return false;
   const { data, error } = await sb.rpc("respond_friend_request", { p_request_id: requestId, p_accept: accept });

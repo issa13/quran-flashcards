@@ -942,6 +942,63 @@ $$;
 
 grant execute on function public.remove_friend(uuid) to authenticated;
 
+-- send_friend_request_by_user_id(): same logic as send_friend_request()
+-- above, but keyed by user id instead of a shared friend_code — used
+-- from the online duel lobby (⚔️ تحديات → مباشر), where the other
+-- person's id is already known directly (from presence or from an
+-- active/finished duel) and typing in a friend_code would be an
+-- unnecessary extra step.
+create or replace function public.send_friend_request_by_user_id(p_target_user_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_reverse_pending bigint;
+  v_existing record;
+begin
+  if p_target_user_id is null or p_target_user_id = v_uid then
+    return jsonb_build_object('ok', false, 'error', 'self');
+  end if;
+  if not exists (select 1 from public.profiles where id = p_target_user_id) then
+    return jsonb_build_object('ok', false, 'error', 'not_found');
+  end if;
+
+  select id into v_reverse_pending from public.friend_requests
+    where from_user_id = p_target_user_id and to_user_id = v_uid and status = 'pending';
+  if v_reverse_pending is not null then
+    update public.friend_requests set status = 'accepted', responded_at = now() where id = v_reverse_pending;
+    return jsonb_build_object('ok', true, 'status', 'accepted');
+  end if;
+
+  select * into v_existing from public.friend_requests
+    where from_user_id = v_uid and to_user_id = p_target_user_id;
+
+  if found then
+    if v_existing.status = 'declined' then
+      update public.friend_requests set status = 'pending', created_at = now(), responded_at = null
+        where id = v_existing.id;
+      return jsonb_build_object('ok', true, 'status', 'pending');
+    end if;
+    return jsonb_build_object('ok', false, 'error', 'already_' || v_existing.status);
+  end if;
+
+  if exists (
+    select 1 from public.friend_requests
+    where from_user_id = p_target_user_id and to_user_id = v_uid and status = 'accepted'
+  ) then
+    return jsonb_build_object('ok', false, 'error', 'already_accepted');
+  end if;
+
+  insert into public.friend_requests (from_user_id, to_user_id) values (v_uid, p_target_user_id);
+  return jsonb_build_object('ok', true, 'status', 'pending');
+end;
+$$;
+
+grant execute on function public.send_friend_request_by_user_id(uuid) to authenticated;
+
 -- Self-scoped views (same "runs with owner privileges, so the
 -- auth.uid() filter has to be explicit" pattern as session_summary).
 create or replace view public.my_incoming_friend_requests as
@@ -1509,6 +1566,7 @@ declare
   v_already record;
   v_claimed bigint;
   v_won boolean := false;
+  v_answer_count int;
 begin
   select * into v_duel from public.duels where id = p_duel_id;
   if v_duel.id is null or v_duel.status <> 'active' or v_uid not in (v_duel.created_by, v_duel.opponent_id) then
@@ -1523,7 +1581,11 @@ begin
   where duel_id = p_duel_id and question_index = p_question_index and user_id = v_uid;
 
   if v_already.id is not null then
-    return jsonb_build_object('ok', true, 'alreadyAnswered', true, 'isCorrect', v_already.is_correct);
+    select count(*) into v_answer_count
+    from public.duel_answers where duel_id = p_duel_id and question_index = p_question_index;
+    return jsonb_build_object(
+      'ok', true, 'alreadyAnswered', true, 'isCorrect', v_already.is_correct, 'bothAnswered', v_answer_count >= 2
+    );
   end if;
 
   select correct_index into v_correct_index
@@ -1537,6 +1599,9 @@ begin
 
   insert into public.duel_answers (duel_id, question_index, user_id, choice_index, is_correct)
   values (p_duel_id, p_question_index, v_uid, p_choice_index, v_is_correct);
+
+  select count(*) into v_answer_count
+  from public.duel_answers where duel_id = p_duel_id and question_index = p_question_index;
 
   if v_is_correct then
     update public.duel_questions
@@ -1555,7 +1620,8 @@ begin
 
   return jsonb_build_object(
     'ok', true, 'alreadyAnswered', false,
-    'isCorrect', v_is_correct, 'wonPoint', v_won, 'correctIndex', v_correct_index
+    'isCorrect', v_is_correct, 'wonPoint', v_won, 'correctIndex', v_correct_index,
+    'bothAnswered', v_answer_count >= 2
   );
 end;
 $$;
@@ -1584,6 +1650,9 @@ declare
   v_code text;
   v_wins int;
   v_earned text[] := '{}';
+  v_prev_type text;
+  v_next_type text;
+  v_delay_seconds int;
 begin
   select * into v_duel from public.duels where id = p_duel_id for update;
   if v_duel.id is null or v_duel.status <> 'active' or v_uid not in (v_duel.created_by, v_duel.opponent_id) then
@@ -1597,9 +1666,22 @@ begin
   v_is_last := (p_question_index + 1 >= v_duel.total_questions);
 
   if not v_is_last then
+    -- A short synchronized "get ready" pre-roll — but only when the
+    -- next question's type actually differs from the current one, so
+    -- both players see a beat to notice the type change (same spirit
+    -- as offline mode's type-intro screen) without slowing down a
+    -- run of same-type questions at all. Both clients compute this
+    -- identically off the same server timestamp, so no "ready" combo
+    -- API is needed.
+    select question_type into v_prev_type from public.duel_questions
+      where duel_id = p_duel_id and question_index = p_question_index;
+    select question_type into v_next_type from public.duel_questions
+      where duel_id = p_duel_id and question_index = p_question_index + 1;
+    v_delay_seconds := case when v_next_type is distinct from v_prev_type then 3 else 0 end;
+
     update public.duels
     set current_question_index = p_question_index + 1,
-        current_question_revealed_at = clock_timestamp()
+        current_question_revealed_at = clock_timestamp() + make_interval(secs => v_delay_seconds)
     where id = p_duel_id and current_question_index = p_question_index;
 
     return jsonb_build_object('ok', true, 'finished', false, 'newIndex', p_question_index + 1);
@@ -1646,6 +1728,24 @@ end;
 $$;
 
 grant execute on function public.advance_duel_question(bigint, int) to authenticated;
+
+-- 26b) Add `duels` to Supabase's realtime publication. Creating a
+--     table does NOT automatically make its changes broadcast over
+--     Realtime — without this, every postgres_changes subscription
+--     above (incoming invites, live duel state) would silently never
+--     fire, and the UI would only ever update on a manual refetch.
+--     Guarded so re-running this file is still safe (ALTER
+--     PUBLICATION ... ADD TABLE errors if the table's already a
+--     member).
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'duels'
+  ) then
+    alter publication supabase_realtime add table public.duels;
+  end if;
+end $$;
 
 -- 27) forfeit_duel(): voluntary surrender by a participant, at any
 --     point after the invite's been accepted (not for a still-pending

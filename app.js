@@ -1796,6 +1796,10 @@ const duelWaitingCancelBtn = document.getElementById("duelWaitingCancelBtn");
 
 const duelProgressLabel = document.getElementById("duelProgressLabel");
 const duelScoreboard = document.getElementById("duelScoreboard");
+const duelTypeIntro = document.getElementById("duelTypeIntro");
+const duelTypeIntroLabel = document.getElementById("duelTypeIntroLabel");
+const duelTypeIntroCountdown = document.getElementById("duelTypeIntroCountdown");
+const duelQuestionArea = document.getElementById("duelQuestionArea");
 const duelProgressBar = document.getElementById("duelProgressBar");
 const duelFlashcard = document.getElementById("duelFlashcard");
 const duelCardHelp = document.getElementById("duelCardHelp");
@@ -1811,6 +1815,7 @@ const duelBackToHubBtn = document.getElementById("duelBackToHubBtn");
 // -------- state --------
 let duelId = null;
 let duelIsHost = false;
+let duelOpponentId = null;
 let duelOpponentName = "الخصم";
 let duelConfigContext = null; // { kind: 'friend'|'direct', friendId, friendName } | { kind: 'quickmatch' }
 let duelStateChannel = null;
@@ -1818,11 +1823,13 @@ let duelCurrentQuestion = null;
 let duelAnswered = false;
 let duelAdvancePending = false;
 let duelTimerInterval = null;
+let duelTypeIntroTimer = null;
 let duelWaitingPollInterval = null;
 let duelWaitingCancelHandler = null;
 let duelAudioEl = null;
 let duelValidationToken = 0;
 let myDisplayNameCache = null;
+let myFriendIdsCache = new Set(); // friend user ids, refreshed each hub visit
 
 function escapeDuelHtml(str) {
   return (str || "").toString().replace(/[&<>"']/g, (c) => ({
@@ -1842,6 +1849,10 @@ async function resolveDuelOpponentName(duel) {
   const otherId = duel.created_by === currentUser.id ? duel.opponent_id : duel.created_by;
   const name = (typeof fetchDisplayName === "function") ? await fetchDisplayName(otherId) : null;
   return name || "الخصم";
+}
+
+function resolveDuelOpponentId(duel) {
+  return duel.created_by === currentUser.id ? duel.opponent_id : duel.created_by;
 }
 
 // -------- مباشر/محلي mode toggle --------
@@ -1928,6 +1939,7 @@ async function enterOnlineDuelMode() {
 async function resumeDuel(duel) {
   duelId = duel.id;
   duelIsHost = duel.created_by === currentUser.id;
+  duelOpponentId = resolveDuelOpponentId(duel);
   duelOpponentName = await resolveDuelOpponentName(duel);
 
   if (duel.status === "accepted") {
@@ -1960,8 +1972,10 @@ function renderDuelStatsSummary(stats) {
 async function loadDuelFriendsList() {
   duelFriendsList.innerHTML = '<div class="status">جاري التحميل...</div>';
   const friends = (typeof fetchMyFriends === "function") ? await fetchMyFriends() : [];
+  myFriendIdsCache = new Set(friends.map((f) => f.friend_user_id));
+
   if (!friends.length) {
-    duelFriendsList.innerHTML = '<div class="status">لا يوجد أصدقاء بعد. أضف أصدقاء من «👥 أصدقائي».</div>';
+    duelFriendsList.innerHTML = '<div class="status">لا يوجد أصدقاء بعد. أضف أصدقاء من «👥 أصدقائي» أو من قائمة المتصلين أدناه.</div>';
     return;
   }
   duelFriendsList.innerHTML = friends
@@ -1980,23 +1994,58 @@ async function loadDuelFriendsList() {
   });
 }
 
+// Shared by the online-now list and the live duel scoreboard — sends
+// a friend request straight from a user id (see
+// send_friend_request_by_user_id() in supabase-schema.sql), no
+// friend_code exchange needed since we already know exactly who this
+// is (they're either present right now, or actively duelling us).
+async function addFriendFromDuel(userId, btnEl) {
+  if (!userId || (typeof sendFriendRequestByUserId !== "function")) return;
+  btnEl.disabled = true;
+  const result = await sendFriendRequestByUserId(userId);
+  if (result?.ok) {
+    btnEl.textContent = result.status === "accepted" ? "أصبحتما صديقين! ✓" : "تم الإرسال ✓";
+    myFriendIdsCache.add(userId);
+  } else if (result?.error === "already_accepted" || result?.error === "already_pending") {
+    btnEl.textContent = "تم الإرسال بالفعل";
+    myFriendIdsCache.add(userId);
+  } else {
+    btnEl.disabled = false;
+    btnEl.textContent = "+ صديق";
+    alert("تعذّر إرسال طلب الصداقة.");
+  }
+}
+
 function renderDuelOnlineList(people) {
   if (!people || !people.length) {
     duelOnlineList.innerHTML = '<div class="status">لا أحد متصل الآن.</div>';
     return;
   }
   duelOnlineList.innerHTML = people
-    .map((p) => `
+    .map((p) => {
+      const alreadyFriend = myFriendIdsCache.has(p.userId);
+      return `
       <div class="duel-person-row" data-user-id="${p.userId}" data-name="${escapeDuelHtml(p.display_name)}">
         <span class="duel-person-name"><span class="duel-online-dot"></span>${escapeDuelHtml(p.display_name)}</span>
-        <button type="button" class="btn small challenge-duel-online-btn">⚔️ تحدَّ</button>
-      </div>`)
+        <span class="duel-person-actions">
+          ${alreadyFriend ? "" : '<button type="button" class="btn small ghost duel-add-friend-btn">+ صديق</button>'}
+          <button type="button" class="btn small challenge-duel-online-btn">⚔️ تحدَّ</button>
+        </span>
+      </div>`;
+    })
     .join("");
 
   duelOnlineList.querySelectorAll(".challenge-duel-online-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const row = btn.closest(".duel-person-row");
       openDuelConfig({ kind: "direct", friendId: row.dataset.userId, friendName: row.dataset.name });
+    });
+  });
+
+  duelOnlineList.querySelectorAll(".duel-add-friend-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const row = btn.closest(".duel-person-row");
+      addFriendFromDuel(row.dataset.userId, btn);
     });
   });
 }
@@ -2095,6 +2144,7 @@ duelSubmitBtn.addEventListener("click", async () => {
       const duel = await fetchDuelState(result.duelId);
       duelId = result.duelId;
       duelIsHost = true;
+      duelOpponentId = duel ? resolveDuelOpponentId(duel) : null;
       duelOpponentName = duel ? await resolveDuelOpponentName(duel) : "الخصم";
       showDuelWaiting("جارٍ التحضير", "تم إيجاد خصم! جارٍ تحضير الأسئلة...", null);
       await hostGenerateQuestionsAndWatch(result.duelId);
@@ -2113,6 +2163,7 @@ duelSubmitBtn.addEventListener("click", async () => {
   }
   duelId = newId;
   duelIsHost = true;
+  duelOpponentId = duelConfigContext.friendId;
   duelOpponentName = duelConfigContext.friendName;
   showDuelWaiting("بانتظار الرد", `بانتظار موافقة ${escapeDuelHtml(duelConfigContext.friendName)} على التحدي...`, cancelWaitingDuel);
   beginDuelStateWatch(newId, onHostWaitingForAcceptance);
@@ -2224,6 +2275,7 @@ function stopQuickMatchWaitPoll() {
 async function enterDuelPlay(duel) {
   duelId = duel.id;
   duelIsHost = duel.created_by === currentUser.id;
+  duelOpponentId = resolveDuelOpponentId(duel);
   if (!duelOpponentName || duelOpponentName === "الخصم") {
     duelOpponentName = await resolveDuelOpponentName(duel);
   }
@@ -2237,6 +2289,11 @@ async function enterDuelPlay(duel) {
 function renderDuelScoreboard(duel) {
   const myScore = duelIsHost ? duel.creator_score : duel.opponent_score;
   const oppScore = duelIsHost ? duel.opponent_score : duel.creator_score;
+  const alreadyFriend = duelOpponentId && myFriendIdsCache.has(duelOpponentId);
+  const addFriendHtml = (!alreadyFriend && duelOpponentId)
+    ? `<button type="button" id="duelAddFriendBtn" class="btn small ghost duel-scoreboard-add-friend">+ صديق</button>`
+    : "";
+
   duelScoreboard.innerHTML = `
     <div class="duel-score-side me">
       <div class="duel-score-side-name">أنت</div>
@@ -2246,8 +2303,12 @@ function renderDuelScoreboard(duel) {
     <div class="duel-score-side opponent">
       <div class="duel-score-side-name">${escapeDuelHtml(duelOpponentName)}</div>
       <div class="duel-score-side-points">${oppScore}</div>
+      ${addFriendHtml}
     </div>`;
   duelProgressLabel.textContent = `سؤال ${duel.current_question_index + 1} من ${duel.total_questions}`;
+
+  const addBtn = document.getElementById("duelAddFriendBtn");
+  if (addBtn) addBtn.addEventListener("click", () => addFriendFromDuel(duelOpponentId, addBtn));
 }
 
 async function onDuelStateChangedDuringPlay(duel) {
@@ -2268,6 +2329,7 @@ async function loadDuelCurrentQuestion(duel) {
   duelAnswered = false;
   duelRoundStatus.style.display = "none";
   stopDuelTimer();
+  stopDuelTypeIntroCountdown();
   duelAudioStop();
 
   const q = await fetchDuelQuestion(duel.id, duel.current_question_index);
@@ -2277,13 +2339,59 @@ async function loadDuelCurrentQuestion(duel) {
   }
   duelCurrentQuestion = q;
 
+  // advance_duel_question() (and the Edge Function, for question 1)
+  // sets current_question_revealed_at a few seconds in the future
+  // whenever the type is about to change, specifically so both
+  // players get a synced beat to notice the new type before the
+  // timer starts — same idea as offline mode's type-intro screen,
+  // just without needing a mutual "ready" handshake since both
+  // clients compute this identically off the same server timestamp.
+  const revealedAt = duel.current_question_revealed_at ? new Date(duel.current_question_revealed_at).getTime() : Date.now();
+  const preRollMs = revealedAt - Date.now();
+
+  if (preRollMs > 250) {
+    showDuelTypeIntro(q.question_type, preRollMs, () => {
+      revealDuelQuestionCard(q);
+      startDuelTimer(duel);
+    });
+  } else {
+    revealDuelQuestionCard(q);
+    startDuelTimer(duel);
+  }
+}
+
+function showDuelTypeIntro(type, preRollMs, onDone) {
+  duelQuestionArea.style.display = "none";
+  duelTypeIntro.style.display = "block";
+  duelTypeIntroLabel.textContent = getTypeLabel(type);
+
+  stopDuelTypeIntroCountdown();
+  const endsAt = Date.now() + preRollMs;
+  const tick = () => {
+    const remaining = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+    duelTypeIntroCountdown.textContent = remaining > 0 ? `يبدأ خلال ${remaining}...` : "الآن!";
+    if (Date.now() >= endsAt) {
+      stopDuelTypeIntroCountdown();
+      onDone();
+    }
+  };
+  duelTypeIntroTimer = setInterval(tick, 200);
+  tick();
+}
+
+function stopDuelTypeIntroCountdown() {
+  if (duelTypeIntroTimer) { clearInterval(duelTypeIntroTimer); duelTypeIntroTimer = null; }
+}
+
+function revealDuelQuestionCard(q) {
+  duelTypeIntro.style.display = "none";
+  duelQuestionArea.style.display = "block";
+
   duelFlashcard.classList.toggle("audio-question", !!q.is_audio_only);
   duelCardHelp.textContent = `النوع: ${getTypeLabel(q.question_type)}`;
   setCardText(duelQText, q.is_audio_only ? "🎧 اضغط زر الاستماع لسماع الآية" : q.q_text);
   renderDuelChoices(q.choices);
   duelPlayAudioBtn.style.display = q.q_ayah_number ? "inline-flex" : "none";
-
-  startDuelTimer(duel);
 }
 
 function renderDuelChoices(choices) {
@@ -2334,10 +2442,16 @@ async function submitMyDuelAnswer(choiceIndex) {
   highlightDuelChoice(choiceIndex, result.isCorrect);
   showDuelRoundStatus(result);
 
-  // Whoever answers advances the shared round after a short pause —
-  // advance_duel_question() is itself compare-and-swap guarded, so
-  // both players' clients racing to call it is harmless.
-  setTimeout(() => tryAdvanceDuelQuestion(questionIndex), 1400);
+  // Only advance once the round is actually decided: either I just
+  // won the point, or both players have now answered and neither got
+  // it right (bothAnswered — see submit_duel_answer() in
+  // supabase-schema.sql). If I answered wrong and the opponent hasn't
+  // answered yet, wait — their eventual answer (whichever way it
+  // goes) or the shared timer will move things along instead, so a
+  // lone wrong guess can no longer cut off the other player's turn.
+  if (result.wonPoint || result.bothAnswered) {
+    setTimeout(() => tryAdvanceDuelQuestion(questionIndex), 1400);
+  }
 }
 
 function showDuelRoundStatus(result) {
@@ -2352,9 +2466,12 @@ function showDuelRoundStatus(result) {
   } else if (result.isCorrect) {
     duelRoundStatus.classList.add("waiting");
     duelRoundStatus.textContent = "✅ إجابة صحيحة، لكن الخصم كان أسرع.";
-  } else {
+  } else if (result.bothAnswered) {
     duelRoundStatus.classList.add("lost");
-    duelRoundStatus.textContent = "❌ إجابة خاطئة.";
+    duelRoundStatus.textContent = "❌ لم يُجب أحدكما بشكل صحيح.";
+  } else {
+    duelRoundStatus.classList.add("waiting");
+    duelRoundStatus.textContent = "❌ إجابة خاطئة — بانتظار الخصم...";
   }
 }
 
@@ -2375,6 +2492,10 @@ function startDuelTimer(duel) {
         lockDuelChoices();
         showDuelRoundStatus({ isCorrect: false, wonPoint: false, timeout: true });
       }
+      // The shared fallback: even if a wrong answer is deliberately
+      // not advancing the round (see submitMyDuelAnswer above), the
+      // timer running out on either client always does — so there's
+      // no permanent deadlock if the opponent never answers.
       tryAdvanceDuelQuestion(duel.current_question_index);
     }
   };

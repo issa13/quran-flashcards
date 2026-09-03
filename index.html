@@ -532,6 +532,8 @@
                   <option value="15" selected>15 ثانية</option>
                   <option value="20">20 ثانية</option>
                   <option value="30">30 ثانية</option>
+                  <option value="45">45 ثانية</option>
+                  <option value="60">60 ثانية</option>
                 </select>
               </div>
             </div>
@@ -585,19 +587,31 @@
 
             <div id="duelScoreboard" class="duel-scoreboard"></div>
 
-            <div class="progress-wrap" style="margin: 12px auto; width:100%;">
-              <div id="duelProgressBar" class="progress-bar"></div>
+            <!-- Shown briefly (synced for both players — see
+                 advance_duel_question()'s pre-roll delay) whenever the
+                 question type is about to change, so nobody has to
+                 guess what kind of question is coming next. -->
+            <div id="duelTypeIntro" class="challenge-type-intro" style="display:none;">
+              <div class="challenge-type-intro-icon">🔔</div>
+              <div class="challenge-type-intro-label" id="duelTypeIntroLabel"></div>
+              <div class="challenge-type-intro-count" id="duelTypeIntroCountdown"></div>
             </div>
 
-            <div id="duelFlashcard" class="mcq-card">
-              <div class="helper" id="duelCardHelp"></div>
-              <div class="text" id="duelQText">—</div>
-              <button id="duelPlayAudioBtn" type="button" class="btn small ghost audio-btn" style="display:none;">🔊 استماع</button>
-              <div class="sub" id="duelSub">اختر الإجابة الصحيحة بأسرع ما يمكن</div>
-              <div id="duelMcqChoices" class="mcq-choices"></div>
-            </div>
+            <div id="duelQuestionArea">
+              <div class="progress-wrap" style="margin: 12px auto; width:100%;">
+                <div id="duelProgressBar" class="progress-bar"></div>
+              </div>
 
-            <div id="duelRoundStatus" class="duel-round-status" style="display:none;"></div>
+              <div id="duelFlashcard" class="mcq-card">
+                <div class="helper" id="duelCardHelp"></div>
+                <div class="text" id="duelQText">—</div>
+                <button id="duelPlayAudioBtn" type="button" class="btn small ghost audio-btn" style="display:none;">🔊 استماع</button>
+                <div class="sub" id="duelSub">اختر الإجابة الصحيحة بأسرع ما يمكن</div>
+                <div id="duelMcqChoices" class="mcq-choices"></div>
+              </div>
+
+              <div id="duelRoundStatus" class="duel-round-status" style="display:none;"></div>
+            </div>
 
             <button id="duelForfeitBtn" type="button" class="btn small ghost danger" style="margin-top:14px; width:100%;">🏳️ الاستسلام</button>
           </div>
