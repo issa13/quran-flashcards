@@ -176,12 +176,14 @@
 
             <!-- Signed-in users: fixed session range (read-only) + new-session button -->
             <div class="row" id="sessionRangeRow" style="margin-top: 10px; display:none;">
-              <div class="field">
+              <div class="field" style="flex: 1 1 100%;">
                 <label>نطاق صفحات الجلسة الحالية</label>
-                <div id="sessionRangeDisplay" class="session-range-display">—</div>
+                <div class="session-range-with-action">
+                  <div id="sessionRangeDisplay" class="session-range-display">—</div>
+                  <button id="openCreateSessionBtn" type="button" class="btn small">+ جلسة جديدة</button>
+                </div>
                 <div class="hint">النطاق ثابت لهذه الجلسة. أنشئ جلسة جديدة لتغييره.</div>
               </div>
-              <button id="openCreateSessionBtn" type="button" class="btn small" style="align-self:flex-end;">+ جلسة جديدة</button>
             </div>
 
             <!-- Signed-in users: mistake-review toggle -->
@@ -368,7 +370,7 @@
       <div class="view-card">
 
         <div class="challenge-mode-toggle" id="challengeModeToggle">
-          <button type="button" class="challenge-mode-btn active" data-mode="offline">📴 محلي</button>
+          <button type="button" class="challenge-mode-btn active" data-mode="offline">📱 محلي</button>
           <button type="button" class="challenge-mode-btn" data-mode="online">🌐 مباشر</button>
         </div>
 

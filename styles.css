@@ -94,8 +94,15 @@ body, .btn, .mcq-choice, select, input, .modal, .panel {
 
 * { box-sizing: border-box; }
 
+html {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
 body {
   margin: 0;
+  overflow-x: hidden;
+  max-width: 100%;
   font-family: 'Tajawal', system-ui, -apple-system, "Segoe UI", Tahoma, Arial, sans-serif;
   color: var(--ink);
   background:
@@ -1018,6 +1025,20 @@ select:focus, input:focus {
   font-size: 14px;
   font-weight: 800;
   color: var(--accent-text);
+}
+
+.session-range-with-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.session-range-with-action .session-range-display {
+  flex: 1;
+  min-width: 0;
+}
+.session-range-with-action .btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .mistake-review-row.active {
