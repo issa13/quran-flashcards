@@ -46,6 +46,9 @@ const mcqChoicesEl = document.getElementById("mcqChoices");
 const statusEl = document.getElementById("status");
 const progressBar = document.getElementById("progressBar");
 const progressWrap = document.querySelector(".progress-wrap");
+const homeRangeChip = document.getElementById("homeRangeChip");
+const settingsToggleBtn = document.getElementById("settingsToggleBtn");
+const settingsAccordionBody = document.getElementById("settingsAccordionBody");
 
 const qTypeSelect = document.getElementById("qTypeSelect");
 const timerSelect = document.getElementById("timerSelect");
@@ -91,7 +94,28 @@ const ACHIEVEMENT_INFO = {
   streak_days_3: { icon: "📅", title: "نشاط 3 أيام متتالية" },
   streak_days_7: { icon: "🗓️", title: "أسبوع كامل" },
   streak_days_30: { icon: "🌙", title: "شهر كامل" },
+  night_owl: { icon: "🦉", title: "بومة الليل" },
+  early_bird: { icon: "🐦", title: "الطائر المبكر" },
+  weekend_warrior: { icon: "🎯", title: "محارب العطلة" },
+  duel_first_win: { icon: "⚔️", title: "أول انتصار مباشر" },
+  duel_wins_10: { icon: "🛡️", title: "مبارز محترف" },
 };
+
+// Catalog-backed fallback for the 43 achievements generated in a SQL
+// loop (30× juz_complete_N, 13× type_master_<type> — see
+// supabase-schema.sql section 5d/5e) which aren't worth hand-listing
+// above one by one. Fetched once and cached, rather than on every
+// toast, since the catalog itself never changes during a session.
+let achievementCatalogCache = null;
+async function getAchievementInfo(code) {
+  if (ACHIEVEMENT_INFO[code]) return ACHIEVEMENT_INFO[code];
+  if (!achievementCatalogCache) {
+    const catalog = (typeof fetchAchievementsCatalog === "function") ? await fetchAchievementsCatalog() : [];
+    achievementCatalogCache = {};
+    catalog.forEach((a) => { achievementCatalogCache[a.code] = { icon: a.icon, title: a.title }; });
+  }
+  return achievementCatalogCache[code] || { icon: "🏅", title: "إنجاز جديد" };
+}
 
 // -------- levels (lifetime, account-wide) --------
 // level = floor(sqrt(xp / 25)) + 1 → 25 XP for lvl 2, 100 for lvl 3,
@@ -333,11 +357,38 @@ function showAchievementToast(info) {
   }, 3200);
 }
 
-function showAchievementToasts(codes) {
-  (codes || []).forEach((code, i) => {
-    const info = ACHIEVEMENT_INFO[code] || { icon: "🏅", title: "إنجاز جديد" };
+async function showAchievementToasts(codes) {
+  const list = codes || [];
+  for (let i = 0; i < list.length; i++) {
+    const info = await getAchievementInfo(list[i]);
     setTimeout(() => showAchievementToast(info), i * 450);
-  });
+  }
+}
+
+// Called once on sign-in (see auth-ui.js's onAuthChange) to capture a
+// baseline of achievements the person already has — without this,
+// the very first duel win after signing in would misread every
+// achievement they've EVER earned as "new" and toast all of them.
+async function initKnownAchievementCache() {
+  if (!currentUser) { knownAchievementCodesCache = null; return; }
+  const earned = (typeof fetchMyAchievements === "function") ? await fetchMyAchievements() : [];
+  knownAchievementCodesCache = new Set(earned.map((e) => e.code));
+}
+
+// See showDuelResults()'s comment on why this diff-based approach
+// (rather than trusting any single RPC response) is the reliable way
+// to show the duel-win achievement toast.
+async function checkForNewDuelAchievements() {
+  if (!knownAchievementCodesCache) await initKnownAchievementCache();
+  if (!knownAchievementCodesCache) return; // still no session — nothing to check
+
+  const nowEarned = (typeof fetchMyAchievements === "function") ? await fetchMyAchievements() : [];
+  const newly = nowEarned
+    .map((e) => e.code)
+    .filter((code) => !knownAchievementCodesCache.has(code));
+
+  knownAchievementCodesCache = new Set(nowEarned.map((e) => e.code));
+  if (newly.length) showAchievementToasts(newly);
 }
 
 // -------- range resolution --------
@@ -485,7 +536,7 @@ async function getBlockMessageForCurrentState(type) {
   const range = getActiveRange();
   if (!range) {
     if (currentUser) {
-      return "هذه الجلسة ليس لها نطاق صفحات محدد. أنشئ جلسة جديدة من «📊 إحصائياتي» ← «+ جلسة جديدة» للمتابعة.";
+      return "هذه الجلسة ليس لها نطاق صفحات محدد. اضغط «+ جلسة جديدة» ضمن ⚙️ الإعدادات أدناه للمتابعة.";
     }
     return "الرجاء اختيار نطاق صفحات صالح.";
   }
@@ -495,6 +546,8 @@ async function getBlockMessageForCurrentState(type) {
 // Reflects getBlockMessageForCurrentState() in the UI immediately on
 // every relevant change, not just when generating fails.
 async function refreshGenerationAvailability() {
+  updateHomeRangeChip();
+
   const type = qTypeSelect.value;
   const msg = await getBlockMessageForCurrentState(type);
 
@@ -505,6 +558,16 @@ async function refreshGenerationAvailability() {
     generateBtn.disabled = false;
     setStatus("");
   }
+}
+
+// Read-only glance at the active range shown near the top of the home
+// page (see homeRangeChip in index.html) — the full picker lives in
+// the ⚙️ الإعدادات section below. Kept in sync from
+// refreshGenerationAvailability(), which already runs on every event
+// that could change the active range (guest picker, session sync).
+function updateHomeRangeChip() {
+  const range = getActiveRange();
+  homeRangeChip.textContent = range ? `📖 ${range.minP}–${range.maxP}` : "📖 —";
 }
 
 function setOptionAvailability(value, available) {
@@ -1830,6 +1893,7 @@ let duelAudioEl = null;
 let duelValidationToken = 0;
 let myDisplayNameCache = null;
 let myFriendIdsCache = new Set(); // friend user ids, refreshed each hub visit
+let knownAchievementCodesCache = null; // seeded at sign-in — see initKnownAchievementCache()
 
 function escapeDuelHtml(str) {
   return (str || "").toString().replace(/[&<>"']/g, (c) => ({
@@ -2557,6 +2621,28 @@ duelForfeitBtn.addEventListener("click", async () => {
   // realtime subscription picks up status='finished' → shows results
 });
 
+const duelClaimForfeitBtn = document.getElementById("duelClaimForfeitBtn");
+duelClaimForfeitBtn.addEventListener("click", async () => {
+  if (!duelId) return;
+  duelClaimForfeitBtn.disabled = true;
+  // claim_opponent_forfeit() is the actual gatekeeper (a generous,
+  // server-verified grace period since the last question was
+  // revealed) — this button just offers the option; a too-early tap
+  // gets a friendly explanation instead of silently failing.
+  const result = await claimOpponentForfeit(duelId);
+  duelClaimForfeitBtn.disabled = false;
+  if (result?.ok) {
+    // realtime subscription picks up status='finished' → shows results
+  } else if (result?.reason === "too_soon") {
+    alert("لم يمض وقت كافٍ بعد لاعتبار الخصم غير نشط. حاول مرة أخرى بعد قليل.");
+  } else if (result?.reason === "already_resolved") {
+    // duel likely just finished normally at the same moment — the
+    // realtime subscription will show results momentarily.
+  } else {
+    alert("تعذّر تنفيذ الطلب. حاول مرة أخرى.");
+  }
+});
+
 // -------- results --------
 async function showDuelResults(duel) {
   duelIsHost = duel.created_by === currentUser.id;
@@ -2573,6 +2659,20 @@ async function showDuelResults(duel) {
     headline = "💔 خسرت هذه المرة.";
   } else {
     headline = "🤝 تعادل!";
+  }
+
+  // A duel win can trigger duel_first_win/duel_wins_10, but three
+  // different RPCs (advance_duel_question, forfeit_duel,
+  // claim_opponent_forfeit) can each be the one that actually
+  // finalizes a given duel, and for advance_duel_question specifically
+  // only ONE of the two players' near-simultaneous calls gets the
+  // real result (the other gets a harmless "already advanced" no-op
+  // with no achievement data). Rather than trust whichever RPC
+  // response happened to arrive, diff my achievements against a
+  // baseline captured at sign-in — reliable regardless of which path
+  // or which client's call actually settled the duel.
+  if (duel.winner_id === currentUser.id) {
+    await checkForNewDuelAchievements();
   }
 
   const stats = await fetchDuelStats(currentUser.id);
@@ -2628,6 +2728,13 @@ loadGuestScore();
 updateScore();
 setStatus("");
 qText.textContent = "—";
+
+// -------- settings accordion (expanded by default) --------
+settingsToggleBtn.addEventListener("click", () => {
+  const expanded = settingsToggleBtn.getAttribute("aria-expanded") === "true";
+  settingsToggleBtn.setAttribute("aria-expanded", String(!expanded));
+  settingsAccordionBody.classList.toggle("collapsed", expanded);
+});
 
 // Update help text when changing question type (without generating)
 qTypeSelect.addEventListener("change", () => {

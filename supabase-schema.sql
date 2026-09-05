@@ -1598,8 +1598,21 @@ begin
 
   v_is_correct := (p_choice_index = v_correct_index);
 
+  -- ON CONFLICT DO NOTHING guards a genuine race: a duplicate call for
+  -- the same (duel, question, user) — e.g. a network retry or a
+  -- double-tap that beat the button-lock — would otherwise hit the
+  -- unique constraint unhandled. If this insert is the one that lost
+  -- that race, re-read what the winning insert actually recorded
+  -- rather than trusting p_choice_index/v_is_correct from this call.
   insert into public.duel_answers (duel_id, question_index, user_id, choice_index, is_correct)
-  values (p_duel_id, p_question_index, v_uid, p_choice_index, v_is_correct);
+  values (p_duel_id, p_question_index, v_uid, p_choice_index, v_is_correct)
+  on conflict (duel_id, question_index, user_id) do nothing;
+
+  if not found then
+    select is_correct into v_is_correct
+    from public.duel_answers
+    where duel_id = p_duel_id and question_index = p_question_index and user_id = v_uid;
+  end if;
 
   select count(*) into v_answer_count
   from public.duel_answers where duel_id = p_duel_id and question_index = p_question_index;
@@ -1636,6 +1649,42 @@ grant execute on function public.submit_duel_answer(bigint, int, int) to authent
 --     deciding the winner by score (a tie is recorded as a draw for
 --     both, no sudden-death round), updating duel_stats, and awarding
 --     the duel achievements.
+-- Shared by advance_duel_question(), forfeit_duel(), and
+-- claim_opponent_forfeit() below — every path that can end with
+-- someone winning a duel awards duel_first_win/duel_wins_10 the same
+-- way, so a win by forfeit counts exactly like a win by score.
+-- Internal only (not granted to `authenticated`) — always called from
+-- inside another security-definer function, never directly by a
+-- client, and expects duel_stats.wins to already reflect this win.
+create or replace function public.award_duel_win_achievements(p_winner uuid)
+returns text[]
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_wins int;
+  v_code text;
+  v_earned text[] := '{}';
+begin
+  select wins into v_wins from public.duel_stats where user_id = p_winner;
+
+  v_code := null;
+  insert into public.user_achievements (user_id, code) values (p_winner, 'duel_first_win')
+    on conflict do nothing returning code into v_code;
+  if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
+
+  if coalesce(v_wins, 0) >= 10 then
+    v_code := null;
+    insert into public.user_achievements (user_id, code) values (p_winner, 'duel_wins_10')
+      on conflict do nothing returning code into v_code;
+    if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
+  end if;
+
+  return v_earned;
+end;
+$$;
+
 create or replace function public.advance_duel_question(p_duel_id bigint, p_question_index int)
 returns jsonb
 language plpgsql
@@ -1648,8 +1697,6 @@ declare
   v_is_last boolean;
   v_winner uuid;
   v_loser uuid;
-  v_code text;
-  v_wins int;
   v_earned text[] := '{}';
   v_prev_type text;
   v_next_type text;
@@ -1704,19 +1751,7 @@ begin
     insert into public.duel_stats (user_id, losses) values (v_loser, 1)
       on conflict (user_id) do update set losses = public.duel_stats.losses + 1, updated_at = now();
 
-    select wins into v_wins from public.duel_stats where user_id = v_winner;
-
-    v_code := null;
-    insert into public.user_achievements (user_id, code) values (v_winner, 'duel_first_win')
-      on conflict do nothing returning code into v_code;
-    if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
-
-    if coalesce(v_wins, 0) >= 10 then
-      v_code := null;
-      insert into public.user_achievements (user_id, code) values (v_winner, 'duel_wins_10')
-        on conflict do nothing returning code into v_code;
-      if v_code is not null then v_earned := array_append(v_earned, v_code); end if;
-    end if;
+    v_earned := public.award_duel_win_achievements(v_winner);
   else
     insert into public.duel_stats (user_id, draws) values (v_duel.created_by, 1)
       on conflict (user_id) do update set draws = public.duel_stats.draws + 1, updated_at = now();
@@ -1762,6 +1797,7 @@ declare
   v_uid uuid := auth.uid();
   v_duel record;
   v_winner uuid;
+  v_earned text[] := '{}';
 begin
   select * into v_duel from public.duels where id = p_duel_id for update;
   if v_duel.id is null or v_uid not in (v_duel.created_by, v_duel.opponent_id) then
@@ -1782,9 +1818,10 @@ begin
       on conflict (user_id) do update set wins = public.duel_stats.wins + 1, updated_at = now();
     insert into public.duel_stats (user_id, losses) values (v_uid, 1)
       on conflict (user_id) do update set losses = public.duel_stats.losses + 1, updated_at = now();
+    v_earned := public.award_duel_win_achievements(v_winner);
   end if;
 
-  return jsonb_build_object('ok', true, 'winnerId', v_winner);
+  return jsonb_build_object('ok', true, 'winnerId', v_winner, 'earnedByWinner', to_jsonb(v_earned));
 end;
 $$;
 
@@ -1809,6 +1846,7 @@ declare
   v_opponent uuid;
   v_grace_seconds int;
   v_reference timestamptz;
+  v_earned text[] := '{}';
 begin
   select * into v_duel from public.duels where id = p_duel_id for update;
   if v_duel.id is null or v_uid not in (v_duel.created_by, v_duel.opponent_id) then
@@ -1838,8 +1876,9 @@ begin
     on conflict (user_id) do update set wins = public.duel_stats.wins + 1, updated_at = now();
   insert into public.duel_stats (user_id, losses) values (v_opponent, 1)
     on conflict (user_id) do update set losses = public.duel_stats.losses + 1, updated_at = now();
+  v_earned := public.award_duel_win_achievements(v_uid);
 
-  return jsonb_build_object('ok', true, 'winnerId', v_uid);
+  return jsonb_build_object('ok', true, 'winnerId', v_uid, 'earnedByWinner', to_jsonb(v_earned));
 end;
 $$;
 

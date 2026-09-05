@@ -397,6 +397,80 @@ body::before {
   100% { transform: scale(1); }
 }
 
+/* -------- Home page: compact header row (title + score) -------- */
+.quiz-header-row {
+  width: min(94vw, var(--maxw));
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* -------- Home page: read-only range chip -------- */
+.range-chip {
+  width: min(94vw, var(--maxw));
+  text-align: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+  background: var(--card);
+  border: 1.5px solid rgba(var(--ink-rgb), 0.1);
+  border-radius: 999px;
+  padding: 6px 14px;
+}
+
+/* -------- Home page: collapsible settings section -------- */
+.settings-accordion {
+  width: min(94vw, var(--maxw));
+}
+
+.settings-accordion-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(var(--gold-rgb), 0.3);
+  background: var(--card);
+  color: var(--accent-text);
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease);
+}
+.settings-accordion-header:hover { background: var(--success-bg); }
+
+.settings-chevron {
+  transition: transform 0.2s var(--ease);
+  font-size: 14px;
+}
+.settings-accordion-header[aria-expanded="false"] .settings-chevron {
+  transform: rotate(-90deg);
+}
+
+.settings-accordion-body {
+  margin-top: 10px;
+}
+.settings-accordion-body.collapsed {
+  display: none;
+}
+.settings-accordion-body .panel {
+  width: 100%;
+}
+
+/* -------- Standalone card sections stacked inside one screen (used
+   for a friend's profile, mirroring 👤 ملفي الشخصي's own layout) -------- */
+.profile-card-stack {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
 /* -------- Score + combo/fire indicator stack -------- */
 .score-combo-wrap {
   display: flex;

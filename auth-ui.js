@@ -3,7 +3,6 @@
 
 const guestActions = document.getElementById("guestActions");
 const userActions = document.getElementById("userActions");
-const userNameLabel = document.getElementById("userNameLabel");
 const userLevelBadge = document.getElementById("userLevelBadge");
 
 const authModal = document.getElementById("authModal");
@@ -44,8 +43,6 @@ const newSessionCustomMax = document.getElementById("newSessionCustomMax");
 const createSessionSubmitBtn = document.getElementById("createSessionSubmitBtn");
 
 const leaderboardBody = document.getElementById("leaderboardBody");
-const achievementsBody = document.getElementById("achievementsBody");
-const progressBody = document.getElementById("progressBody");
 
 const logoutBtn = document.getElementById("logoutBtn");
 
@@ -84,9 +81,7 @@ const bottomNav = document.getElementById("bottomNav");
 const bottomNavButtons = Array.from(bottomNav.querySelectorAll(".bottom-nav-btn"));
 const appViews = {
   home: document.getElementById("view-home"),
-  stats: document.getElementById("view-stats"),
-  achievements: document.getElementById("view-achievements"),
-  progress: document.getElementById("view-progress"),
+  profile: document.getElementById("view-profile"),
   friends: document.getElementById("view-friends"),
   leaderboard: document.getElementById("view-leaderboard"),
   challenge: document.getElementById("view-challenge"),
@@ -98,9 +93,7 @@ function switchView(name) {
   Object.entries(appViews).forEach(([key, el]) => el.classList.toggle("active", key === name));
   bottomNavButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.view === name));
 
-  if (name === "stats") refreshSessionsAndShow(null); // null = default to active session
-  else if (name === "achievements") loadAchievementsView();
-  else if (name === "progress") loadProgressView();
+  if (name === "profile") loadProfileView();
   else if (name === "friends") { showFriendsListSection(); loadFriendsModal(); }
   else if (name === "leaderboard") loadLeaderboardView();
 }
@@ -375,8 +368,6 @@ onAuthChange(async (user) => {
   if (user) {
     guestActions.style.display = "none";
     userActions.style.display = "flex";
-    const profile = await fetchProfile();
-    userNameLabel.textContent = profile?.display_name ? `مرحباً، ${profile.display_name}` : "مرحباً";
 
     const stats = await fetchUserStats();
     updateLevelBadge(stats?.xp || 0);
@@ -384,6 +375,7 @@ onAuthChange(async (user) => {
     if (typeof subscribeToIncomingDuelInvites === "function") {
       subscribeToIncomingDuelInvites((row) => handleIncomingDuelRow(row));
     }
+    if (typeof initKnownAchievementCache === "function") await initKnownAchievementCache();
   } else {
     guestActions.style.display = "flex";
     userActions.style.display = "none";
@@ -804,19 +796,29 @@ function buildRankLadderHtml(level, xp) {
     })
     .join("");
 
-  return `
-    <div class="section-label">سلّم الرتب</div>
-    <div class="rank-ladder">${rows}</div>`;
+  return `<div class="rank-ladder">${rows}</div>`;
 }
 
-// Called by switchView("achievements") when that tab is opened.
-async function loadAchievementsView() {
-  achievementsBody.innerHTML = '<div class="status">جاري التحميل...</div>';
+// -------- profile view (👤 ملفي الشخصي) — merges what used to be three
+// separate tabs (stats/achievements/progress) into one screen, each
+// section its own card. Called by switchView("profile").
+const profileLevelSummary = document.getElementById("profileLevelSummary");
+const profileProgressSummary = document.getElementById("profileProgressSummary");
+const profileHeatmap = document.getElementById("profileHeatmap");
+const profileStreakStrip = document.getElementById("profileStreakStrip");
+const profileStreakNumbers = document.getElementById("profileStreakNumbers");
+const profileAchievementsBody = document.getElementById("profileAchievementsBody");
+const profileRankLadder = document.getElementById("profileRankLadder");
 
-  const [stats, catalog, earned] = await Promise.all([
+async function loadProfileView() {
+  profileAchievementsBody.innerHTML = '<div class="status">جاري التحميل...</div>';
+
+  const [stats, catalog, earned, pageStats, dailyActivity] = await Promise.all([
     fetchUserStats(),
     fetchAchievementsCatalog(),
     fetchMyAchievements(),
+    fetchMyPageStats(),
+    fetchMyDailyActivity(),
   ]);
 
   const xp = stats?.xp || 0;
@@ -826,11 +828,9 @@ async function loadAchievementsView() {
   const pct = nextLevelStart > thisLevelStart
     ? clampPct(((xp - thisLevelStart) / (nextLevelStart - thisLevelStart)) * 100)
     : 100;
-
-  const earnedCodes = new Set((earned || []).map((e) => e.code));
   const title = (typeof levelTitle === "function") ? levelTitle(level) : "";
 
-  const summaryHtml = `
+  profileLevelSummary.innerHTML = `
     <div class="level-summary">
       <div class="level-summary-badge">🎖️ المستوى ${level}${title ? ` · ${escapeHtml(title)}` : ""}</div>
       <div class="level-summary-xp">${xp} XP</div>
@@ -838,11 +838,16 @@ async function loadAchievementsView() {
       <div class="level-progress-caption">${Math.max(0, nextLevelStart - xp)} XP للمستوى التالي</div>
     </div>`;
 
-  achievementsBody.innerHTML =
-    summaryHtml +
-    buildRankLadderHtml(level, xp) +
-    '<div class="section-label">الإنجازات</div>' +
-    buildBadgesGridHtml(catalog, earnedCodes);
+  profileProgressSummary.innerHTML = progressSummaryHtml(pageStats, "");
+  renderHeatmapInto(profileHeatmap, pageStats);
+  renderStreakInto(profileStreakStrip, profileStreakNumbers, dailyActivity);
+
+  profileRankLadder.innerHTML = buildRankLadderHtml(level, xp);
+
+  const earnedCodes = new Set((earned || []).map((e) => e.code));
+  profileAchievementsBody.innerHTML = buildBadgesGridHtml(catalog, earnedCodes);
+
+  await refreshSessionsAndShow(null); // null = default to active session
 }
 
 // Shared by the achievements view and the friend-profile view.
@@ -935,32 +940,6 @@ function progressSummaryHtml(pageStats, extra) {
       <div class="stat-big">${touched}/604</div>
       <div class="stat-caption">صفحة تمت مراجعتها — دقة إجمالية ${pct}%${extra || ""}</div>
     </div>`;
-}
-
-// -------- progress view (own account) --------
-function buildProgressBodyHtml() {
-  return `
-    <div id="progressSummary"></div>
-    <div class="section-label">خريطة تغطية الصفحات (604 صفحة)</div>
-    <div id="myHeatmap" class="heatmap-grid"></div>
-    <div class="section-label">النشاط اليومي (آخر 30 يومًا)</div>
-    <div id="myStreakStrip" class="streak-strip"></div>
-    <div id="myStreakNumbers" class="streak-numbers"></div>`;
-}
-
-// Called by switchView("progress") when that tab is opened.
-async function loadProgressView() {
-  progressBody.innerHTML = '<div class="status">جاري التحميل...</div>';
-
-  const [pageStats, dailyActivity] = await Promise.all([
-    fetchMyPageStats(),
-    fetchMyDailyActivity(),
-  ]);
-
-  progressBody.innerHTML = buildProgressBodyHtml();
-  document.getElementById("progressSummary").innerHTML = progressSummaryHtml(pageStats, "");
-  renderHeatmapInto(document.getElementById("myHeatmap"), pageStats);
-  renderStreakInto(document.getElementById("myStreakStrip"), document.getElementById("myStreakNumbers"), dailyActivity);
 }
 
 // -------- friends view: my code, add a friend, requests, friend list --------
@@ -1151,15 +1130,28 @@ async function loadFriendsModal() {
 // in the bottom-nav wiring above.
 
 // -------- friend profile "page" (was its own modal; now a second
-// page within the friends tab — see friendProfileSection) --------
+// page within the friends tab — see friendProfileSection). Each
+// section is its own card, same layout as 👤 ملفي الشخصي. --------
 const friendProfileTitle = document.getElementById("friendProfileTitle");
-const friendProfileBody = document.getElementById("friendProfileBody");
+const friendProfileSummary = document.getElementById("friendProfileSummary");
+const friendHeatmap = document.getElementById("friendHeatmap");
+const friendStreakStrip = document.getElementById("friendStreakStrip");
+const friendStreakNumbers = document.getElementById("friendStreakNumbers");
+const friendAchievementsBody = document.getElementById("friendAchievementsBody");
+const friendRankLadder = document.getElementById("friendRankLadder");
+const friendSessionsBody = document.getElementById("friendSessionsBody");
 
 async function openFriendProfile(friendUserId) {
   friendsListSection.style.display = "none";
-  friendProfileSection.style.display = "block";
+  friendProfileSection.style.display = "flex";
   friendProfileTitle.textContent = "الملف الشخصي";
-  friendProfileBody.innerHTML = '<div class="status">جاري التحميل...</div>';
+  friendProfileSummary.innerHTML = "";
+  friendHeatmap.innerHTML = "";
+  friendStreakStrip.innerHTML = "";
+  friendStreakNumbers.textContent = "";
+  friendAchievementsBody.innerHTML = '<div class="status">جاري التحميل...</div>';
+  friendRankLadder.innerHTML = "";
+  friendSessionsBody.innerHTML = '<div class="status">جاري التحميل...</div>';
 
   const [data, catalog] = await Promise.all([
     fetchFriendProfile(friendUserId),
@@ -1167,7 +1159,9 @@ async function openFriendProfile(friendUserId) {
   ]);
 
   if (!data) {
-    friendProfileBody.innerHTML = '<div class="status">تعذّر عرض هذا الملف — تأكد أنكما ما زلتما صديقين.</div>';
+    friendProfileSummary.innerHTML = '<div class="status">تعذّر عرض هذا الملف — تأكد أنكما ما زلتما صديقين.</div>';
+    friendAchievementsBody.innerHTML = "";
+    friendSessionsBody.innerHTML = "";
     return;
   }
 
@@ -1178,7 +1172,17 @@ async function openFriendProfile(friendUserId) {
   const earnedCodes = new Set(data.earned_achievements || []);
   const sessions = data.sessions || [];
 
-  const sessionsHtml = sessions.length
+  friendProfileSummary.innerHTML = progressSummaryHtml(
+    pageStats,
+    level != null ? ` — المستوى ${level}${typeof levelTitle === "function" ? ` · ${escapeHtml(levelTitle(level))}` : ""}` : ""
+  );
+  renderHeatmapInto(friendHeatmap, pageStats);
+  renderStreakInto(friendStreakStrip, friendStreakNumbers, dailyActivity);
+
+  friendRankLadder.innerHTML = level != null ? buildRankLadderHtml(level, data.xp || 0) : '<div class="status">—</div>';
+  friendAchievementsBody.innerHTML = buildBadgesGridHtml(catalog, earnedCodes);
+
+  friendSessionsBody.innerHTML = sessions.length
     ? sessions.map((s) => {
         const pct = s.total_answers ? Math.round((100 * s.total_correct) / s.total_answers) : 0;
         const range = (s.range_min != null && s.range_max != null) ? `${s.range_min}–${s.range_max}` : "—";
@@ -1189,22 +1193,6 @@ async function openFriendProfile(friendUserId) {
           </div>`;
       }).join("")
     : '<div class="status">لا توجد جلسات بعد.</div>';
-
-  friendProfileBody.innerHTML = `
-    ${progressSummaryHtml(pageStats, level != null ? ` — المستوى ${level}${typeof levelTitle === "function" ? ` · ${escapeHtml(levelTitle(level))}` : ""}` : "")}
-    <div class="section-label">خريطة تغطية الصفحات</div>
-    <div id="friendHeatmap" class="heatmap-grid"></div>
-    <div class="section-label">النشاط اليومي (آخر 30 يومًا)</div>
-    <div id="friendStreakStrip" class="streak-strip"></div>
-    <div id="friendStreakNumbers" class="streak-numbers"></div>
-    ${level != null ? buildRankLadderHtml(level, data.xp || 0) : ""}
-    <div class="section-label">الإنجازات</div>
-    ${buildBadgesGridHtml(catalog, earnedCodes)}
-    <div class="section-label">الجلسات</div>
-    ${sessionsHtml}`;
-
-  renderHeatmapInto(document.getElementById("friendHeatmap"), pageStats);
-  renderStreakInto(document.getElementById("friendStreakStrip"), document.getElementById("friendStreakNumbers"), dailyActivity);
 }
 
 // Kick off auth

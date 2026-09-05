@@ -32,130 +32,38 @@
         <button id="loginOpenBtn" class="btn small">تسجيل الدخول</button>
       </div>
       <div id="userActions" class="topbar-auth" style="display:none;">
-        <span id="userNameLabel" class="user-name"></span>
         <span id="userLevelBadge" class="level-badge" style="display:none;"></span>
-        <button id="logoutBtn" class="btn small ghost">خروج</button>
       </div>
       <div id="topbarSessionName" class="topbar-session-name"></div>
       <button id="themeToggleBtn" type="button" class="btn small ghost theme-toggle" aria-label="تبديل الوضع الليلي">🌙 داكن</button>
     </div>
 
     <!-- ==================================================================
-         HOME VIEW — the flashcard/quiz screen (unchanged content, just
-         wrapped so the bottom nav can swap it out for another view).
+         HOME VIEW — the flashcard/quiz screen. Reordered so the quiz
+         itself (timer, question, choices, generate button) sits right
+         at the top where it's used constantly, while the setup
+         controls (question type, timer, range) — set once, touched
+         rarely — live in a collapsible "⚙️ الإعدادات" section below.
          ================================================================== -->
     <div id="view-home" class="app-view active">
 
-      <div class="panel">
-        <div class="topline">
-          <div class="title-block">
-            <div class="app-title">بطاقات مراجعة القرآن</div>
-            <div class="title-ornament" aria-hidden="true">
-              <span></span><i></i><span></span>
-            </div>
-          </div>
-          <div class="score-combo-wrap">
-            <div id="scoreBox" class="score">النتيجة: 0 / 0</div>
-            <div id="comboBox" class="combo-box" style="display:none;"></div>
+      <!-- Compact header: title + score/combo, one row -->
+      <div class="quiz-header-row">
+        <div class="title-block">
+          <div class="app-title">بطاقات مراجعة القرآن</div>
+          <div class="title-ornament" aria-hidden="true">
+            <span></span><i></i><span></span>
           </div>
         </div>
-
-        <!-- Row 1: نوع السؤال + المؤقت -->
-        <div class="row" style="margin-top: 12px;">
-          <div class="field" style="flex: 2;">
-            <label for="qTypeSelect">نوع السؤال</label>
-            <select id="qTypeSelect">
-              <option value="first">خمن الآية الأولى بالصفحة</option>
-              <option value="last">خمن الآية الأخيرة بالصفحة</option>
-              <option value="previous">خمن الآية السابقة</option>
-              <option value="surah">خمن السورة</option>
-              <option value="pageNumber">خمن رقم الصفحة</option>
-              <option value="ayahCount">خمن كم عدد آيات الصفحة؟ (السؤال: أول آية)</option>
-              <option value="nextPageFirst">خمن أول آية بالصفحة التالية</option>
-              <option value="prevPageFirst">خمن أول آية بالصفحة السابقة</option>
-              <option value="pageEndToNextFirst">من آخر آية: خمن أول آية بالصفحة التالية</option>
-              <option value="pageStartToPrevLast">من أول آية: خمن آخر آية بالصفحة السابقة</option>
-              <option value="juz">خمن الجزء</option>
-              <option value="ayahNumber">خمن رقم الآية بالسورة</option>
-              <option value="listenNext">🎧 استمع ثم خمن الآية التالية</option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label for="timerSelect">المؤقت</label>
-            <select id="timerSelect">
-              <option value="0">بدون مؤقت</option>
-              <option value="5">5 ثواني</option>
-              <option value="10">10 ثواني</option>
-              <option value="12">12 ثانية</option>
-              <option value="15">15 ثانية</option>
-              <option value="20">20 ثانية</option>
-              <option value="30" selected>30 ثانية</option>
-              <option value="45">45 ثانية</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Row 2: نطاق الصفحات (guests only — signed-in users' range is
-             fixed per-session, set when the session is created) -->
-        <div class="row" id="guestRangeRow" style="margin-top: 10px;">
-          <div class="field">
-            <label for="rangeSelect">نطاق الصفحات</label>
-            <select id="rangeSelect">
-              <option value="custom">نطاق مخصص</option>
-              <option value="all">كل المصحف (1–604)</option>
-              <option value="first100">أول 100 صفحة (1–100)</option>
-              <option value="sabatawal">السبع الطوال (البقرة–التوبة)</option>
-              <option value="juz1">الجزء الأول (1–21)</option>
-              <option value="juz27">جزء الذاريات (27)</option>
-              <option value="juz28">جزء قد سمع (28)</option>
-              <option value="juz29">جزء تبارك (29)</option>
-              <option value="juz30">جزء عم (30)</option>
-              <option value="baqarah">سورة البقرة</option>
-              <option value="imran">سورة آل عمران</option>
-              <option value="nisa">سورة النساء</option>
-              <option value="maidah">سورة المائدة</option>
-              <option value="anam">سورة الأنعام</option>
-              <option value="anfal">سورة الأنفال</option>
-              <option value="tawbah">سورة التوبة</option>
-              <option value="zahrawain">الزهراوين (البقرة + آل عمران)</option>
-            </select>
-            <div class="hint">كلما ضيّقت النطاق زادت المراجعة والتثبيت.</div>
-          </div>
-        </div>
-
-        <!-- Row 3: Custom Range (hidden by default) -->
-        <div id="customRangeRow" class="row" style="margin-top: 10px; display:none;">
-          <div class="field">
-            <label for="customMin">من صفحة</label>
-            <input id="customMin" type="number" min="1" max="604" value="1">
-          </div>
-          <div class="field">
-            <label for="customMax">إلى صفحة</label>
-            <input id="customMax" type="number" min="1" max="604" value="604">
-          </div>
-        </div>
-
-        <!-- Signed-in users: fixed session range (read-only) -->
-        <div class="row" id="sessionRangeRow" style="margin-top: 10px; display:none;">
-          <div class="field">
-            <label>نطاق صفحات الجلسة الحالية</label>
-            <div id="sessionRangeDisplay" class="session-range-display">—</div>
-            <div class="hint">النطاق ثابت لهذه الجلسة. أنشئ جلسة جديدة من «📊 إحصائياتي» لتغييره.</div>
-          </div>
-        </div>
-
-        <!-- Signed-in users: mistake-review toggle -->
-        <div class="row mistake-review-row" id="mistakeReviewRow" style="margin-top: 10px; display:none;">
-          <div class="field">
-            <label class="toggle-row">
-              <input type="checkbox" id="mistakeReviewToggle">
-              🔁 مراجعة الأخطاء فقط (من هذه الجلسة)
-            </label>
-            <div class="hint" id="mistakeReviewHint">سيتم اختيار الأسئلة من الصفحات التي أخطأت فيها فقط، وتُزال الصفحة تلقائيًا بعد إتقانها.</div>
-          </div>
+        <div class="score-combo-wrap">
+          <div id="scoreBox" class="score">النتيجة: 0 / 0</div>
+          <div id="comboBox" class="combo-box" style="display:none;"></div>
         </div>
       </div>
+
+      <!-- Read-only glance at the active range — full control is in
+           ⚙️ الإعدادات below. -->
+      <div id="homeRangeChip" class="range-chip">📖 —</div>
 
       <!-- Progress -->
       <div class="progress-wrap" aria-label="شريط المؤقت">
@@ -181,6 +89,116 @@
 
       <div id="status" class="status" aria-live="polite"></div>
 
+      <!-- Settings — collapsible, expanded by default -->
+      <div class="settings-accordion">
+        <button id="settingsToggleBtn" type="button" class="settings-accordion-header" aria-expanded="true">
+          <span>⚙️ الإعدادات</span>
+          <span class="settings-chevron">▾</span>
+        </button>
+        <div id="settingsAccordionBody" class="settings-accordion-body">
+          <div class="panel">
+
+            <!-- Row 1: نوع السؤال + المؤقت -->
+            <div class="row">
+              <div class="field" style="flex: 2;">
+                <label for="qTypeSelect">نوع السؤال</label>
+                <select id="qTypeSelect">
+                  <option value="first">خمن الآية الأولى بالصفحة</option>
+                  <option value="last">خمن الآية الأخيرة بالصفحة</option>
+                  <option value="previous">خمن الآية السابقة</option>
+                  <option value="surah">خمن السورة</option>
+                  <option value="pageNumber">خمن رقم الصفحة</option>
+                  <option value="ayahCount">خمن كم عدد آيات الصفحة؟ (السؤال: أول آية)</option>
+                  <option value="nextPageFirst">خمن أول آية بالصفحة التالية</option>
+                  <option value="prevPageFirst">خمن أول آية بالصفحة السابقة</option>
+                  <option value="pageEndToNextFirst">من آخر آية: خمن أول آية بالصفحة التالية</option>
+                  <option value="pageStartToPrevLast">من أول آية: خمن آخر آية بالصفحة السابقة</option>
+                  <option value="juz">خمن الجزء</option>
+                  <option value="ayahNumber">خمن رقم الآية بالسورة</option>
+                  <option value="listenNext">🎧 استمع ثم خمن الآية التالية</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="timerSelect">المؤقت</label>
+                <select id="timerSelect">
+                  <option value="0">بدون مؤقت</option>
+                  <option value="5">5 ثواني</option>
+                  <option value="10">10 ثواني</option>
+                  <option value="12">12 ثانية</option>
+                  <option value="15">15 ثانية</option>
+                  <option value="20">20 ثانية</option>
+                  <option value="30" selected>30 ثانية</option>
+                  <option value="45">45 ثانية</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Row 2: نطاق الصفحات (guests only — signed-in users' range is
+                 fixed per-session, set when the session is created) -->
+            <div class="row" id="guestRangeRow" style="margin-top: 10px;">
+              <div class="field">
+                <label for="rangeSelect">نطاق الصفحات</label>
+                <select id="rangeSelect">
+                  <option value="custom">نطاق مخصص</option>
+                  <option value="all">كل المصحف (1–604)</option>
+                  <option value="first100">أول 100 صفحة (1–100)</option>
+                  <option value="sabatawal">السبع الطوال (البقرة–التوبة)</option>
+                  <option value="juz1">الجزء الأول (1–21)</option>
+                  <option value="juz27">جزء الذاريات (27)</option>
+                  <option value="juz28">جزء قد سمع (28)</option>
+                  <option value="juz29">جزء تبارك (29)</option>
+                  <option value="juz30">جزء عم (30)</option>
+                  <option value="baqarah">سورة البقرة</option>
+                  <option value="imran">سورة آل عمران</option>
+                  <option value="nisa">سورة النساء</option>
+                  <option value="maidah">سورة المائدة</option>
+                  <option value="anam">سورة الأنعام</option>
+                  <option value="anfal">سورة الأنفال</option>
+                  <option value="tawbah">سورة التوبة</option>
+                  <option value="zahrawain">الزهراوين (البقرة + آل عمران)</option>
+                </select>
+                <div class="hint">كلما ضيّقت النطاق زادت المراجعة والتثبيت.</div>
+              </div>
+            </div>
+
+            <!-- Row 3: Custom Range (hidden by default) -->
+            <div id="customRangeRow" class="row" style="margin-top: 10px; display:none;">
+              <div class="field">
+                <label for="customMin">من صفحة</label>
+                <input id="customMin" type="number" min="1" max="604" value="1">
+              </div>
+              <div class="field">
+                <label for="customMax">إلى صفحة</label>
+                <input id="customMax" type="number" min="1" max="604" value="604">
+              </div>
+            </div>
+
+            <!-- Signed-in users: fixed session range (read-only) + new-session button -->
+            <div class="row" id="sessionRangeRow" style="margin-top: 10px; display:none;">
+              <div class="field">
+                <label>نطاق صفحات الجلسة الحالية</label>
+                <div id="sessionRangeDisplay" class="session-range-display">—</div>
+                <div class="hint">النطاق ثابت لهذه الجلسة. أنشئ جلسة جديدة لتغييره.</div>
+              </div>
+              <button id="openCreateSessionBtn" type="button" class="btn small" style="align-self:flex-end;">+ جلسة جديدة</button>
+            </div>
+
+            <!-- Signed-in users: mistake-review toggle -->
+            <div class="row mistake-review-row" id="mistakeReviewRow" style="margin-top: 10px; display:none;">
+              <div class="field">
+                <label class="toggle-row">
+                  <input type="checkbox" id="mistakeReviewToggle">
+                  🔁 مراجعة الأخطاء فقط (من هذه الجلسة)
+                </label>
+                <div class="hint" id="mistakeReviewHint">سيتم اختيار الأسئلة من الصفحات التي أخطأت فيها فقط، وتُزال الصفحة تلقائيًا بعد إتقانها.</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
       <div class="footer-badge">
       © 2026 Quran Flashcards — Built with ❤️ by <strong>Issa Abdulaziz</strong>
       </div>
@@ -188,18 +206,44 @@
     </div>
 
     <!-- ==================================================================
-         STATS VIEW (was statsModal)
+         PROFILE VIEW (👤 ملفي الشخصي) — merges what used to be three
+         separate tabs (إحصائياتي/إنجازاتي/تقدمي) into one screen, each
+         section its own standalone card, same visual pattern as a
+         friend's profile below.
          ================================================================== -->
-    <div id="view-stats" class="app-view">
+    <div id="view-profile" class="app-view">
+
       <div class="view-card">
         <div class="view-head">
-          <div class="view-title">📊 إحصائياتي</div>
+          <div class="view-title">👤 ملفي الشخصي</div>
         </div>
+        <div id="profileLevelSummary"></div>
+        <div id="profileProgressSummary"></div>
+      </div>
 
-        <div class="sessions-toolbar">
-          <button id="openCreateSessionBtn" class="btn small">+ جلسة جديدة</button>
+      <div class="view-card">
+        <div class="view-head"><div class="view-title">📈 التقدم</div></div>
+        <div class="section-label">خريطة تغطية الصفحات (604 صفحة)</div>
+        <div id="profileHeatmap" class="heatmap-grid"></div>
+        <div class="section-label">النشاط اليومي (آخر 30 يومًا)</div>
+        <div id="profileStreakStrip" class="streak-strip"></div>
+        <div id="profileStreakNumbers" class="streak-numbers"></div>
+      </div>
+
+      <div class="view-card">
+        <div class="view-head"><div class="view-title">🎖️ الإنجازات</div></div>
+        <div id="profileAchievementsBody" class="stats-body">
+          <div class="status">جاري التحميل...</div>
         </div>
+      </div>
 
+      <div class="view-card">
+        <div class="view-head"><div class="view-title">🏅 سلّم الرتب</div></div>
+        <div id="profileRankLadder"></div>
+      </div>
+
+      <div class="view-card">
+        <div class="view-head"><div class="view-title">📊 الجلسات</div></div>
         <div class="sessions-table-wrap">
           <table class="sessions-table">
             <thead>
@@ -229,35 +273,13 @@
             <button id="deleteSessionBtn" class="btn small ghost danger">🗑 حذف هذه الجلسة</button>
           </div>
         </div>
+        <div class="hint" style="margin-top:10px; text-align:center;">لإنشاء جلسة جديدة، من الصفحة الرئيسية ← ⚙️ الإعدادات.</div>
       </div>
-    </div>
 
-    <!-- ==================================================================
-         ACHIEVEMENTS VIEW (was achievementsModal)
-         ================================================================== -->
-    <div id="view-achievements" class="app-view">
-      <div class="view-card">
-        <div class="view-head">
-          <div class="view-title">🎖️ إنجازاتي</div>
-        </div>
-        <div id="achievementsBody" class="stats-body">
-          <div class="status">جاري التحميل...</div>
-        </div>
+      <div class="view-card" style="text-align:center;">
+        <button id="logoutBtn" class="btn small ghost">خروج</button>
       </div>
-    </div>
 
-    <!-- ==================================================================
-         PROGRESS VIEW (was progressModal)
-         ================================================================== -->
-    <div id="view-progress" class="app-view">
-      <div class="view-card">
-        <div class="view-head">
-          <div class="view-title">📈 تقدمي</div>
-        </div>
-        <div id="progressBody" class="stats-body">
-          <div class="status">جاري التحميل...</div>
-        </div>
-      </div>
     </div>
 
     <!-- ==================================================================
@@ -266,23 +288,50 @@
          button, instead of its own modal.
          ================================================================== -->
     <div id="view-friends" class="app-view">
-      <div class="view-card">
 
-        <div id="friendsListSection">
-          <div class="view-head">
-            <div class="view-title">👥 أصدقائي</div>
-          </div>
-          <div id="friendsBody" class="stats-body">
-            <div class="status">جاري التحميل...</div>
-          </div>
+      <div id="friendsListSection" class="view-card">
+        <div class="view-head">
+          <div class="view-title">👥 أصدقائي</div>
         </div>
+        <div id="friendsBody" class="stats-body">
+          <div class="status">جاري التحميل...</div>
+        </div>
+      </div>
 
-        <div id="friendProfileSection" style="display:none;">
+      <div id="friendProfileSection" class="profile-card-stack" style="display:none;">
+
+        <div class="view-card">
           <div class="view-head">
             <button id="friendProfileBackBtn" class="btn small ghost">→ رجوع</button>
             <div class="view-title" id="friendProfileTitle">الملف الشخصي</div>
           </div>
-          <div id="friendProfileBody" class="stats-body">
+          <div id="friendProfileSummary"></div>
+        </div>
+
+        <div class="view-card">
+          <div class="view-head"><div class="view-title">📈 التقدم</div></div>
+          <div class="section-label">خريطة تغطية الصفحات</div>
+          <div id="friendHeatmap" class="heatmap-grid"></div>
+          <div class="section-label">النشاط اليومي (آخر 30 يومًا)</div>
+          <div id="friendStreakStrip" class="streak-strip"></div>
+          <div id="friendStreakNumbers" class="streak-numbers"></div>
+        </div>
+
+        <div class="view-card">
+          <div class="view-head"><div class="view-title">🎖️ الإنجازات</div></div>
+          <div id="friendAchievementsBody" class="stats-body">
+            <div class="status">جاري التحميل...</div>
+          </div>
+        </div>
+
+        <div class="view-card">
+          <div class="view-head"><div class="view-title">🏅 سلّم الرتب</div></div>
+          <div id="friendRankLadder"></div>
+        </div>
+
+        <div class="view-card">
+          <div class="view-head"><div class="view-title">📊 الجلسات</div></div>
+          <div id="friendSessionsBody" class="stats-body">
             <div class="status">جاري التحميل...</div>
           </div>
         </div>
@@ -614,6 +663,7 @@
             </div>
 
             <button id="duelForfeitBtn" type="button" class="btn small ghost danger" style="margin-top:14px; width:100%;">🏳️ الاستسلام</button>
+            <button id="duelClaimForfeitBtn" type="button" class="btn small ghost" style="margin-top:8px; width:100%;">⏰ الخصم غير متجاوب؟ طالِب بالفوز</button>
           </div>
 
           <!-- ---- results ---- -->
@@ -663,14 +713,8 @@
     <button type="button" class="bottom-nav-btn active" data-view="home">
       <span class="bn-icon">🏠</span><span class="bn-label">الرئيسية</span>
     </button>
-    <button type="button" class="bottom-nav-btn" data-view="stats">
-      <span class="bn-icon">📊</span><span class="bn-label">إحصائياتي</span>
-    </button>
-    <button type="button" class="bottom-nav-btn" data-view="achievements">
-      <span class="bn-icon">🎖️</span><span class="bn-label">إنجازاتي</span>
-    </button>
-    <button type="button" class="bottom-nav-btn" data-view="progress">
-      <span class="bn-icon">📈</span><span class="bn-label">تقدمي</span>
+    <button type="button" class="bottom-nav-btn" data-view="profile">
+      <span class="bn-icon">👤</span><span class="bn-label">ملفي الشخصي</span>
     </button>
     <button type="button" class="bottom-nav-btn" data-view="friends">
       <span class="bn-icon">👥</span><span class="bn-label">أصدقائي</span>
@@ -782,7 +826,7 @@
       </div>
 
       <div class="modal-hint" style="margin-top:10px; text-align:start;">
-        يمكنك تغيير اسم الجلسة لاحقًا من «📊 إحصائياتي»، لكن لا يمكن تغيير نطاق الصفحات بعد الإنشاء — لتغيير النطاق، أنشئ جلسة جديدة.
+        يمكنك تغيير اسم الجلسة لاحقًا من «👤 ملفي الشخصي»، لكن لا يمكن تغيير نطاق الصفحات بعد الإنشاء — لتغيير النطاق، أنشئ جلسة جديدة.
       </div>
 
       <button id="createSessionSubmitBtn" class="btn primary" style="margin-top:14px; width:100%;" disabled>إنشاء الجلسة</button>
