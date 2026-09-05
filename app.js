@@ -2648,31 +2648,35 @@ async function showDuelResults(duel) {
   duelIsHost = duel.created_by === currentUser.id;
   const myScore = duelIsHost ? duel.creator_score : duel.opponent_score;
   const oppScore = duelIsHost ? duel.opponent_score : duel.creator_score;
+  const iWon = duel.winner_id === currentUser.id;
 
   let headline;
   if (duel.forfeited_by) {
     const iForfeited = duel.forfeited_by === currentUser.id;
-    headline = iForfeited ? "استسلمت — خسارة 💔" : `${duelOpponentName} انسحب — فوز لك! 🏆`;
-  } else if (duel.winner_id === currentUser.id) {
-    headline = "🏆 فزت بالمبارزة!";
+    headline = iForfeited ? "استسلمت — خسارة 💔" : `${duelOpponentName} انسحب — فوز لك! 🏆 (+50 XP)`;
+  } else if (iWon) {
+    headline = "🏆 فزت بالمبارزة! (+50 XP)";
   } else if (duel.winner_id) {
     headline = "💔 خسرت هذه المرة.";
   } else {
     headline = "🤝 تعادل!";
   }
 
-  // A duel win can trigger duel_first_win/duel_wins_10, but three
-  // different RPCs (advance_duel_question, forfeit_duel,
-  // claim_opponent_forfeit) can each be the one that actually
-  // finalizes a given duel, and for advance_duel_question specifically
-  // only ONE of the two players' near-simultaneous calls gets the
-  // real result (the other gets a harmless "already advanced" no-op
-  // with no achievement data). Rather than trust whichever RPC
-  // response happened to arrive, diff my achievements against a
-  // baseline captured at sign-in — reliable regardless of which path
-  // or which client's call actually settled the duel.
-  if (duel.winner_id === currentUser.id) {
+  // A duel win awards a flat XP bonus and can trigger duel_first_win/
+  // duel_wins_10 (see award_duel_win_achievements() in supabase-schema
+  // .sql) — but three different RPCs (advance_duel_question,
+  // forfeit_duel, claim_opponent_forfeit) can each be the one that
+  // actually finalizes a given duel, and for advance_duel_question
+  // specifically only ONE of the two players' near-simultaneous calls
+  // gets the real result (the other gets a harmless "already advanced"
+  // no-op with no achievement/XP data). Rather than trust whichever
+  // RPC response happened to arrive, refetch my own stats and diff —
+  // reliable regardless of which path or which client's call actually
+  // settled the duel.
+  if (iWon) {
     await checkForNewDuelAchievements();
+    const freshStats = (typeof fetchUserStats === "function") ? await fetchUserStats() : null;
+    if (freshStats && typeof updateLevelBadge === "function") updateLevelBadge(freshStats.xp || 0);
   }
 
   const stats = await fetchDuelStats(currentUser.id);
@@ -2847,6 +2851,14 @@ if (typeof onAuthChange === "function") {
       activeSessionTitle = active?.title ?? null;
       showSessionRangeUI(activeSessionRangeMin, activeSessionRangeMax);
       setTopbarSessionName(activeSessionTitle);
+
+      // Brand new account (or every session got deleted) — rather
+      // than silently default them into a full 1–604 session they
+      // never actually chose, prompt them straight into picking
+      // their own first range.
+      if (!active && typeof openCreateSessionModal === "function") {
+        openCreateSessionModal();
+      }
     } else {
       activeSessionId = null;
       activeSessionRangeMin = null;

@@ -337,7 +337,6 @@ create policy "Users view their own achievements"
 --    return type changed (void → text[] → jsonb across revisions),
 --    and its signature just grew two new trailing params.
 drop function if exists public.record_attempt(bigint, text, int, boolean, int, int);
-drop function if exists public.record_attempt(bigint, text, int, boolean, int, int, int, boolean);
 
 create function public.record_attempt(
   p_session_id bigint,
@@ -667,12 +666,16 @@ begin
   end loop;
 end $$;
 
--- 8) Auto-create a profile, a first session, and settings whenever a
---    new auth user signs up.
+-- 8) Auto-create a profile whenever a new auth user signs up. No
+--    session or user_settings row is created here on purpose — a
+--    brand-new signed-in user should choose their OWN first session's
+--    range themselves (see the "no active session yet" flow in
+--    app.js/auth-ui.js), rather than being silently defaulted into a
+--    full 1–604 "الجلسة الأولى" they never actually chose.
+--    user_settings gets created lazily on first save
+--    (saveRemoteSettings()'s upsert already handles that fine).
 create or replace function public.handle_new_user()
 returns trigger as $$
-declare
-  new_session_id bigint;
 begin
   insert into public.profiles (id, display_name, friend_code)
   values (
@@ -680,13 +683,6 @@ begin
     coalesce(new.raw_user_meta_data->>'display_name', 'مستخدم'),
     upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8))
   );
-
-  insert into public.sessions (user_id, title, range_min, range_max)
-  values (new.id, 'الجلسة الأولى', 1, 604)
-  returning id into new_session_id;
-
-  insert into public.user_settings (user_id, active_session_id)
-  values (new.id, new_session_id);
 
   return new;
 end;
@@ -1651,11 +1647,12 @@ grant execute on function public.submit_duel_answer(bigint, int, int) to authent
 --     the duel achievements.
 -- Shared by advance_duel_question(), forfeit_duel(), and
 -- claim_opponent_forfeit() below — every path that can end with
--- someone winning a duel awards duel_first_win/duel_wins_10 the same
--- way, so a win by forfeit counts exactly like a win by score.
--- Internal only (not granted to `authenticated`) — always called from
--- inside another security-definer function, never directly by a
--- client, and expects duel_stats.wins to already reflect this win.
+-- someone winning a duel awards duel_first_win/duel_wins_10 (and a
+-- flat XP bonus) the same way, so a win by forfeit counts exactly
+-- like a win by score. Internal only (not granted to `authenticated`)
+-- — always called from inside another security-definer function,
+-- never directly by a client, and expects duel_stats.wins to already
+-- reflect this win.
 create or replace function public.award_duel_win_achievements(p_winner uuid)
 returns text[]
 language plpgsql
@@ -1667,6 +1664,15 @@ declare
   v_code text;
   v_earned text[] := '{}';
 begin
+  -- Flat XP bonus for winning a live duel — same lifetime xp/level
+  -- system solo mode's record_attempt() feeds (see levelFromXp() in
+  -- app.js), so a duel win visibly moves your rank, not just your
+  -- duel record. Upserts in case the winner has never played solo
+  -- mode and has no user_stats row yet.
+  insert into public.user_stats (user_id, xp)
+  values (p_winner, 50)
+  on conflict (user_id) do update set xp = public.user_stats.xp + 50, updated_at = now();
+
   select wins into v_wins from public.duel_stats where user_id = p_winner;
 
   v_code := null;

@@ -128,9 +128,11 @@ async function createSession(title, rangeMin, rangeMax) {
 // Returns { id, rangeMin, rangeMax } for the session that should
 // receive new attempts (rangeMin/rangeMax are set once, at creation —
 // see createSession() — and are null only for an old session created
-// before that was required). Verifies the previously-active session
-// still exists (it may have been deleted); creates a fresh default
-// one (full-Quran range) if needed.
+// before that was required), or null if the person has no session at
+// all yet — a brand new signed-in user, or someone who deleted their
+// last one. Callers should prompt them to create their own first
+// session (their own range choice) rather than silently defaulting
+// them into one; see the "no active session yet" handling in app.js.
 async function ensureActiveSession() {
   if (!sb || !currentUser) return null;
 
@@ -144,8 +146,7 @@ async function ensureActiveSession() {
     if (data) return { id: data.id, title: data.title, rangeMin: data.range_min, rangeMax: data.range_max };
   }
 
-  const newId = await createSession("الجلسة الأولى", 1, 604);
-  return { id: newId, title: "الجلسة الأولى", rangeMin: 1, rangeMax: 604 };
+  return null;
 }
 
 async function fetchMySessions() {

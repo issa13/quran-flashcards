@@ -408,7 +408,11 @@ newSessionNameInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !createSessionSubmitBtn.disabled) createSessionSubmitBtn.click();
 });
 
-openCreateSessionBtn.addEventListener("click", () => {
+// Shared by the "+ جلسة جديدة" button and the automatic prompt shown
+// to a signed-in user with no active session at all yet (see app.js's
+// onAuthChange session-sync handler) — same modal, same defaults,
+// just two different triggers for opening it.
+function openCreateSessionModal() {
   newSessionNameInput.value = "";
   newSessionRangeSelect.value = "all";
   newSessionCustomMin.value = 1;
@@ -416,7 +420,9 @@ openCreateSessionBtn.addEventListener("click", () => {
   showHideNewSessionCustomRange();
   refreshCreateSessionSubmitState();
   showModal(createSessionModal);
-});
+}
+
+openCreateSessionBtn.addEventListener("click", openCreateSessionModal);
 
 createSessionCloseBtn.addEventListener("click", () => hideModal(createSessionModal));
 createSessionModal.addEventListener("click", (e) => { if (e.target === createSessionModal) hideModal(createSessionModal); });
