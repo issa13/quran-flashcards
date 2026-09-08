@@ -336,7 +336,7 @@ create policy "Users view their own achievements"
 --    Dropped and recreated (not just "or replace") because its
 --    return type changed (void → text[] → jsonb across revisions),
 --    and its signature just grew two new trailing params.
-drop function if exists public.record_attempt(bigint, text, int, boolean, int, int);
+drop function if exists public.record_attempt(bigint, text, int, boolean, int, int, int, boolean);
 
 create function public.record_attempt(
   p_session_id bigint,
