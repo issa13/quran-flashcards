@@ -480,6 +480,22 @@ async function fetchSessionLeaderboard() {
   return data;
 }
 
+// Same shape as fetchSessionLeaderboard() but scoped to the last 7
+// days (see session_leaderboard_weekly in supabase-schema.sql) —
+// powers the "📅 هذا الأسبوع" leaderboard tab.
+async function fetchWeeklySessionLeaderboard() {
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("session_leaderboard_weekly")
+    .select("*")
+    .limit(200);
+  if (error) {
+    console.error("fetchWeeklySessionLeaderboard error", error);
+    return [];
+  }
+  return data;
+}
+
 // ============================================================
 // Online duels (⚔️ تحديات → مباشر) — 1v1 live challenges, either
 // against a friend or a random matched opponent. See supabase-schema

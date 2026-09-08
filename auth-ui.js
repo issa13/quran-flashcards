@@ -713,16 +713,69 @@ function fairScore(row) {
   return accuracyScore * (0.65 + 0.35 * rangeFactor);
 }
 
-// Called by switchView("leaderboard") when that tab is opened.
+// -------- leaderboard tabs: أصدقائي / هذا الأسبوع / كل الأوقات --------
+const leaderboardTabs = document.getElementById("leaderboardTabs");
+let currentLeaderboardTab = "friends";
+
+leaderboardTabs.querySelectorAll(".tab").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (btn.classList.contains("active")) return;
+    leaderboardTabs.querySelectorAll(".tab").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentLeaderboardTab = btn.dataset.lb;
+    loadLeaderboardView();
+  });
+});
+
+// Called by switchView("leaderboard") when that tab is opened, and
+// again whenever the person switches between the three sub-tabs.
 async function loadLeaderboardView() {
   leaderboardBody.innerHTML = '<div class="status">جاري التحميل...</div>';
+  if (currentLeaderboardTab === "friends") await loadFriendsLeaderboard();
+  else if (currentLeaderboardTab === "weekly") await loadWeeklyLeaderboard();
+  else await loadAllTimeLeaderboard();
+}
+
+// Same all-time fairness ranking as before, just restricted to your
+// own accepted friends (plus yourself) — everyone else's public
+// sessions are filtered out client-side rather than needing a
+// separate friends-only view server-side.
+async function loadFriendsLeaderboard() {
+  if (!currentUser) {
+    leaderboardBody.innerHTML = '<div class="status">سجّل الدخول لرؤية تصنيف أصدقائك.</div>';
+    return;
+  }
+  const [friends, rows] = await Promise.all([fetchMyFriends(), fetchSessionLeaderboard()]);
+  const friendIds = new Set((friends || []).map((f) => f.friend_user_id));
+  friendIds.add(currentUser.id); // your own public session counts in your own friends list too
+  const filtered = (rows || []).filter((r) => friendIds.has(r.user_id));
+  leaderboardBody.innerHTML = renderLeaderboardHtml(
+    filtered,
+    "لا يوجد أصدقاء لديهم جلسات في لوحة الصدارة بعد. أضف أصدقاء من «👥 أصدقائي»."
+  );
+}
+
+// Same shape/ranking as all-time, but sourced from
+// session_leaderboard_weekly (attempts from the last 7 days only) —
+// zero-activity rows are filtered out since they didn't play this
+// week at all.
+async function loadWeeklyLeaderboard() {
+  const rows = await fetchWeeklySessionLeaderboard();
+  const active = (rows || []).filter((r) => (r.total_answers || 0) > 0);
+  leaderboardBody.innerHTML = renderLeaderboardHtml(
+    active,
+    "لا توجد أي إجابات هذا الأسبوع في لوحة الصدارة بعد. كن أول من يبدأ!"
+  );
+}
+
+async function loadAllTimeLeaderboard() {
   const rows = await fetchSessionLeaderboard();
   leaderboardBody.innerHTML = renderLeaderboardHtml(rows);
 }
 
-function renderLeaderboardHtml(rows) {
+function renderLeaderboardHtml(rows, emptyMessage) {
   if (!rows || rows.length === 0) {
-    return '<div class="status">لا توجد جلسات في لوحة الصدارة بعد. افتح إحصائياتك واختر "أضف هذه الجلسة إلى لوحة الصدارة" لتكون أول من ينضم.</div>';
+    return `<div class="status">${emptyMessage || 'لا توجد جلسات في لوحة الصدارة بعد. افتح ملفك الشخصي واختر "أضف هذه الجلسة إلى لوحة الصدارة" لتكون أول من ينضم.'}</div>`;
   }
 
   const ranked = rows

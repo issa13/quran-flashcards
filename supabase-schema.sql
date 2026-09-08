@@ -336,7 +336,7 @@ create policy "Users view their own achievements"
 --    Dropped and recreated (not just "or replace") because its
 --    return type changed (void → text[] → jsonb across revisions),
 --    and its signature just grew two new trailing params.
-drop function if exists public.record_attempt(bigint, text, int, boolean, int, int, int, boolean);
+drop function if exists public.record_attempt(bigint, text, int, boolean, int, int);
 
 create function public.record_attempt(
   p_session_id bigint,
@@ -750,6 +750,40 @@ select
 from public.sessions s
 join public.profiles p on p.id = s.user_id
 left join public.attempts a on a.session_id = s.id
+left join public.user_stats u on u.user_id = s.user_id
+where s.is_public = true
+group by s.id, s.user_id, p.display_name, s.title, s.range_min, s.range_max, s.created_at, u.xp;
+
+-- 11b) Same shape as session_leaderboard above, but only counting
+--      attempts from the last 7 days — powers the "📅 هذا الأسبوع" tab
+--      (see auth-ui.js's loadWeeklyLeaderboard()). Deliberately keeps
+--      range_min/range_max as the session's actual configured range
+--      rather than recomputing from this week's pages only — the
+--      breadth bonus should reflect what the session covers, not just
+--      what happened to come up this week. The client filters out
+--      zero-activity rows (nothing answered this week) before
+--      rendering, same as it does for any other empty leaderboard.
+create or replace view public.session_leaderboard_weekly as
+select
+  s.id as session_id,
+  s.user_id,
+  p.display_name,
+  s.title,
+  s.range_min,
+  s.range_max,
+  s.created_at as session_created_at,
+  count(a.id) as total_answers,
+  count(a.id) filter (where a.is_correct) as total_correct,
+  case when count(a.id) = 0 then 0
+       else round(100.0 * count(a.id) filter (where a.is_correct) / count(a.id), 1)
+  end as accuracy_pct,
+  min(a.page) as min_page,
+  max(a.page) as max_page,
+  max(a.created_at) as last_active,
+  u.xp as owner_xp
+from public.sessions s
+join public.profiles p on p.id = s.user_id
+left join public.attempts a on a.session_id = s.id and a.created_at >= now() - interval '7 days'
 left join public.user_stats u on u.user_id = s.user_id
 where s.is_public = true
 group by s.id, s.user_id, p.display_name, s.title, s.range_min, s.range_max, s.created_at, u.xp;

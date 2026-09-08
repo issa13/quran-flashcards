@@ -1873,6 +1873,7 @@ const duelRoundStatus = document.getElementById("duelRoundStatus");
 const duelForfeitBtn = document.getElementById("duelForfeitBtn");
 
 const duelResultsBody = document.getElementById("duelResultsBody");
+const duelRematchBtn = document.getElementById("duelRematchBtn");
 const duelBackToHubBtn = document.getElementById("duelBackToHubBtn");
 
 // -------- state --------
@@ -1880,6 +1881,7 @@ let duelId = null;
 let duelIsHost = false;
 let duelOpponentId = null;
 let duelOpponentName = "الخصم";
+let duelLastConfig = null; // { rangeMin, rangeMax, timerSeconds, questionTypes, countPerType } — set on finish, used by the rematch button
 let duelConfigContext = null; // { kind: 'friend'|'direct', friendId, friendName } | { kind: 'quickmatch' }
 let duelStateChannel = null;
 let duelCurrentQuestion = null;
@@ -2650,6 +2652,14 @@ async function showDuelResults(duel) {
   const oppScore = duelIsHost ? duel.opponent_score : duel.creator_score;
   const iWon = duel.winner_id === currentUser.id;
 
+  duelLastConfig = {
+    rangeMin: duel.range_min,
+    rangeMax: duel.range_max,
+    timerSeconds: duel.timer_seconds,
+    questionTypes: duel.question_types,
+    countPerType: duel.count_per_type,
+  };
+
   let headline;
   if (duel.forfeited_by) {
     const iForfeited = duel.forfeited_by === currentUser.id;
@@ -2697,6 +2707,35 @@ async function showDuelResults(duel) {
   duelId = null;
   switchDuelScreen("results");
 }
+
+duelRematchBtn.addEventListener("click", async () => {
+  if (!duelOpponentId || !duelLastConfig) return;
+
+  duelRematchBtn.disabled = true;
+  // Always a direct challenge (not another quick-match queue entry) —
+  // we already know exactly who to face, so this just re-sends the
+  // same config straight to them as a fresh invite they need to
+  // accept, same as any other direct challenge.
+  const newId = await createDirectDuel(
+    duelOpponentId,
+    duelLastConfig.rangeMin,
+    duelLastConfig.rangeMax,
+    duelLastConfig.timerSeconds,
+    duelLastConfig.questionTypes,
+    duelLastConfig.countPerType
+  );
+  duelRematchBtn.disabled = false;
+
+  if (!newId) {
+    alert("تعذّر إرسال طلب إعادة المباراة. حاول مرة أخرى.");
+    return;
+  }
+
+  duelId = newId;
+  duelIsHost = true;
+  showDuelWaiting("بانتظار الرد", `بانتظار موافقة ${escapeDuelHtml(duelOpponentName)} على إعادة المباراة...`, cancelWaitingDuel);
+  beginDuelStateWatch(newId, onHostWaitingForAcceptance);
+});
 
 duelBackToHubBtn.addEventListener("click", async () => {
   await loadDuelHub();
