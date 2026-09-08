@@ -39,17 +39,55 @@ create policy "Users can update their own profile"
 -- per-session (see sessions.is_public below), not per-user.
 alter table public.profiles drop column if exists show_on_leaderboard;
 
--- friend_code: a short public identifier a user shares out-of-band so
--- someone else can send them a friend request (see friend_requests
--- below) — replaces the earlier link-token sharing model entirely.
-alter table public.profiles add column if not exists friend_code text;
+-- friend_code used to live directly on profiles, which has a
+-- "viewable by everyone" select policy — meaning anyone could dump
+-- every user's friend_code straight from the table via the REST API,
+-- defeating the entire "share this code yourself" trust model (it
+-- lets a stranger discover and mass-send friend requests to anyone
+-- without ever having been given their code). Moved to its own table,
+-- readable only by its owner. send_friend_request() and the new-user
+-- trigger are both security definer and keep working unchanged.
+create table if not exists public.friend_codes (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  code text not null
+);
 
-update public.profiles
-set friend_code = upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8))
-where friend_code is null;
+-- Backfill from the old column, if this file previously ran with it.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'profiles' and column_name = 'friend_code'
+  ) then
+    insert into public.friend_codes (user_id, code)
+    select id, friend_code from public.profiles where friend_code is not null
+    on conflict (user_id) do nothing;
+  end if;
+end $$;
 
-alter table public.profiles alter column friend_code set not null;
-create unique index if not exists profiles_friend_code_key on public.profiles (friend_code);
+-- Anyone somehow still without a code (shouldn't normally happen) gets one.
+insert into public.friend_codes (user_id, code)
+select p.id, upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8))
+from public.profiles p
+where not exists (select 1 from public.friend_codes fc where fc.user_id = p.id)
+on conflict (user_id) do nothing;
+
+alter table public.friend_codes alter column code set not null;
+create unique index if not exists friend_codes_code_key on public.friend_codes (code);
+
+alter table public.friend_codes enable row level security;
+
+drop policy if exists "Users view only their own friend code" on public.friend_codes;
+create policy "Users view only their own friend code"
+  on public.friend_codes for select
+  using (auth.uid() = user_id);
+-- No insert/update/delete policy — only ever written by
+-- handle_new_user() below, security definer, bypassing RLS.
+
+-- profiles.friend_code is now redundant and, if left in place, is
+-- exactly the leak this migration closes — drop it.
+drop index if exists public.profiles_friend_code_key;
+alter table public.profiles drop column if exists friend_code;
 
 -- 2) Sessions: a user can have many; each groups its own attempts
 --    and can optionally be published to the public leaderboard.
@@ -677,12 +715,14 @@ end $$;
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
-  insert into public.profiles (id, display_name, friend_code)
+  insert into public.profiles (id, display_name)
   values (
     new.id,
-    coalesce(new.raw_user_meta_data->>'display_name', 'مستخدم'),
-    upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8))
+    coalesce(new.raw_user_meta_data->>'display_name', 'مستخدم')
   );
+
+  insert into public.friend_codes (user_id, code)
+  values (new.id, upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8)));
 
   return new;
 end;
@@ -896,7 +936,7 @@ declare
   v_reverse_pending bigint;
   v_existing record;
 begin
-  select id into v_target from public.profiles where friend_code = upper(trim(p_friend_code));
+  select user_id into v_target from public.friend_codes where code = upper(trim(p_friend_code));
 
   if v_target is null then
     return jsonb_build_object('ok', false, 'error', 'not_found');
@@ -1316,6 +1356,30 @@ create policy "Users can view their own queue row"
 -- No insert/update/delete policy — join/leave both go through RPCs
 -- below, so matching stays atomic (see join_quick_match_queue()).
 
+-- 20b) valid_question_types(): shared whitelist check for duel/quick-
+--     match question types (mirrors app.js's CHALLENGE_TYPES exactly).
+--     Previously create_friend_duel/create_direct_duel/
+--     join_quick_match_queue only checked the array's length and
+--     count_per_type, never that the entries were real known types —
+--     a garbage type couldn't hurt anyone else, but would silently
+--     produce a duel whose question generation could never succeed.
+create or replace function public.valid_question_types(p_types text[])
+returns boolean
+language sql
+immutable
+as $$
+  select p_types is not null
+    and array_length(p_types, 1) >= 3
+    and not exists (
+      select 1 from unnest(p_types) t
+      where t not in (
+        'first', 'last', 'previous', 'surah', 'pageNumber', 'ayahCount',
+        'nextPageFirst', 'prevPageFirst', 'pageEndToNextFirst', 'pageStartToPrevLast',
+        'juz', 'ayahNumber', 'listenNext'
+      )
+    );
+$$;
+
 -- 21) create_friend_duel(): sends a challenge to an accepted friend.
 --     Reuses the same "are they actually friends" check as the friend
 --     system's own RPCs.
@@ -1351,8 +1415,8 @@ begin
     raise exception 'not_friends';
   end if;
 
-  if p_question_types is null or array_length(p_question_types, 1) < 3 then
-    raise exception 'need_at_least_3_types';
+  if not public.valid_question_types(p_question_types) then
+    raise exception 'invalid_question_types';
   end if;
   if p_count_per_type not in (3, 5, 8) then
     raise exception 'invalid_count';
@@ -1406,8 +1470,8 @@ begin
     raise exception 'opponent_not_found';
   end if;
 
-  if p_question_types is null or array_length(p_question_types, 1) < 3 then
-    raise exception 'need_at_least_3_types';
+  if not public.valid_question_types(p_question_types) then
+    raise exception 'invalid_question_types';
   end if;
   if p_count_per_type not in (3, 5, 8) then
     raise exception 'invalid_count';
@@ -1504,8 +1568,8 @@ declare
   v_match record;
   v_duel_id bigint;
 begin
-  if p_question_types is null or array_length(p_question_types, 1) < 3 then
-    raise exception 'need_at_least_3_types';
+  if not public.valid_question_types(p_question_types) then
+    raise exception 'invalid_question_types';
   end if;
   if p_count_per_type not in (3, 5, 8) then
     raise exception 'invalid_count';

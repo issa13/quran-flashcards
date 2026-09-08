@@ -191,6 +191,10 @@ function saveGuestScore() {
 let hasActiveCard = false;
 let answeredThisCard = false;
 let currentCorrectIndex = -1;
+// True while an audio-only (listenNext) card is up and its timer is
+// deliberately withheld until playback actually starts — see
+// generateCard()'s ending and playAudioBtn's click handler below.
+let audioGateTimerPending = false;
 
 // -------- combo / fire indicator --------
 // Purely a client-side, in-browser-session counter — consecutive
@@ -770,6 +774,10 @@ playAudioBtn.addEventListener("click", async () => {
     playAudioBtn.textContent = "⏸️ إيقاف";
     playAudioBtn.classList.add("playing");
     unlockChoicesAfterListening();
+    if (audioGateTimerPending) {
+      audioGateTimerPending = false;
+      startTimer();
+    }
   } catch (e) {
     stopAudio();
     setStatus("تعذّر تشغيل الصوت. حاول مرة أخرى.");
@@ -1197,6 +1205,7 @@ async function generateCard() {
     answeredThisCard = false;
     hasActiveCard = false;
     currentCorrectIndex = -1;
+    audioGateTimerPending = false;
 
     let qa = null;
 
@@ -1253,7 +1262,14 @@ async function generateCard() {
       : `جاهز. النوع: ${label} | المؤقت: ${timerText}`);
     unlockGenerate();
 
-    startTimer();
+    // Audio-only (listenNext) cards keep their choices locked until the
+    // person actually listens (see renderChoices()'s locked param
+    // above) — starting the countdown here would burn timer time
+    // against someone who isn't even allowed to answer yet. The timer
+    // instead starts the moment playback actually begins (see
+    // playAudioBtn's click handler below).
+    audioGateTimerPending = isAudioOnly;
+    if (!isAudioOnly) startTimer();
   } catch (err) {
     setCardText(qText, "خطأ في الشبكة أو في الـ API.");
     mcqChoicesEl.innerHTML = "";
@@ -2013,7 +2029,7 @@ async function resumeDuel(duel) {
       showDuelWaiting("جارٍ التحضير", "جارٍ تحضير الأسئلة...", null);
       await hostGenerateQuestionsAndWatch(duel.id);
     } else {
-      showDuelWaiting("بانتظار المضيف", `بانتظار ${escapeDuelHtml(duelOpponentName)} لتحضير الأسئلة...`, forfeitWhileWaiting, "استسلام");
+      showDuelWaiting("بانتظار المضيف", `بانتظار ${duelOpponentName} لتحضير الأسئلة...`, forfeitWhileWaiting, "استسلام");
       beginDuelStateWatch(duel.id, onGuestWaitingForQuestions);
     }
   } else if (duel.status === "active") {
@@ -2125,7 +2141,7 @@ function openDuelConfig(context) {
     duelConfigTitle.textContent = "مباراة سريعة";
     duelSubmitBtn.textContent = "ابحث عن خصم";
   } else {
-    duelConfigTitle.textContent = `تحدَّ ${escapeDuelHtml(context.friendName)}`;
+    duelConfigTitle.textContent = `تحدَّ ${context.friendName}`;
     duelSubmitBtn.textContent = "إرسال التحدي";
   }
   switchDuelScreen("config");
@@ -2231,7 +2247,7 @@ duelSubmitBtn.addEventListener("click", async () => {
   duelIsHost = true;
   duelOpponentId = duelConfigContext.friendId;
   duelOpponentName = duelConfigContext.friendName;
-  showDuelWaiting("بانتظار الرد", `بانتظار موافقة ${escapeDuelHtml(duelConfigContext.friendName)} على التحدي...`, cancelWaitingDuel);
+  showDuelWaiting("بانتظار الرد", `بانتظار موافقة ${duelConfigContext.friendName} على التحدي...`, cancelWaitingDuel);
   beginDuelStateWatch(newId, onHostWaitingForAcceptance);
 });
 
@@ -2456,19 +2472,25 @@ function revealDuelQuestionCard(q) {
   duelFlashcard.classList.toggle("audio-question", !!q.is_audio_only);
   duelCardHelp.textContent = `النوع: ${getTypeLabel(q.question_type)}`;
   setCardText(duelQText, q.is_audio_only ? "🎧 اضغط زر الاستماع لسماع الآية" : q.q_text);
-  renderDuelChoices(q.choices);
+  renderDuelChoices(q.choices, !!q.is_audio_only);
   duelPlayAudioBtn.style.display = q.q_ayah_number ? "inline-flex" : "none";
 }
 
-function renderDuelChoices(choices) {
+// `locked` mirrors solo mode's renderChoices()/isAudioOnly handling —
+// without it, a listenNext duel question could be answered blind,
+// which both defeats the point of that question type and hands an
+// unfair speed advantage in a first-correct-wins race to whoever
+// skips listening.
+function renderDuelChoices(choices, locked) {
   duelMcqChoices.innerHTML = "";
   choices.forEach((choiceText, idx) => {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "mcq-choice";
+    btn.className = "mcq-choice" + (locked ? " locked" : "");
     btn.textContent = choiceText;
     btn.style.fontSize = choiceFontSize(choiceText);
     btn.dataset.index = String(idx);
+    if (locked) btn.disabled = true;
     duelMcqChoices.appendChild(btn);
   });
 }
@@ -2478,6 +2500,17 @@ function lockDuelChoices() {
 }
 function unlockDuelChoices() {
   Array.from(duelMcqChoices.children).forEach((btn) => { btn.disabled = false; });
+}
+// Releases the listen-gate specifically (as opposed to unlockDuelChoices()
+// above, which is the post-answer-failure recovery path) — same split
+// solo mode makes between unlockChoicesAfterListening() and the plain
+// enable/disable used elsewhere.
+function unlockDuelChoicesAfterListening() {
+  const buttons = Array.from(duelMcqChoices.querySelectorAll(".mcq-choice.locked"));
+  buttons.forEach((btn) => {
+    btn.disabled = false;
+    btn.classList.remove("locked");
+  });
 }
 function highlightDuelChoice(chosenIdx, isCorrect) {
   Array.from(duelMcqChoices.children).forEach((btn, idx) => {
@@ -2608,6 +2641,7 @@ duelPlayAudioBtn.addEventListener("click", async () => {
     await duelAudioEl.play();
     duelPlayAudioBtn.textContent = "⏸️ إيقاف";
     duelPlayAudioBtn.classList.add("playing");
+    unlockDuelChoicesAfterListening();
   } catch (e) {
     duelAudioStop();
   } finally {
@@ -2733,7 +2767,7 @@ duelRematchBtn.addEventListener("click", async () => {
 
   duelId = newId;
   duelIsHost = true;
-  showDuelWaiting("بانتظار الرد", `بانتظار موافقة ${escapeDuelHtml(duelOpponentName)} على إعادة المباراة...`, cancelWaitingDuel);
+  showDuelWaiting("بانتظار الرد", `بانتظار موافقة ${duelOpponentName} على إعادة المباراة...`, cancelWaitingDuel);
   beginDuelStateWatch(newId, onHostWaitingForAcceptance);
 });
 

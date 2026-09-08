@@ -373,12 +373,12 @@ async function fetchMyDailyActivity() {
 // -------- friends --------
 async function fetchMyFriendCode() {
   if (!sb || !currentUser) return null;
-  const { data, error } = await sb.from("profiles").select("friend_code").eq("id", currentUser.id).maybeSingle();
+  const { data, error } = await sb.from("friend_codes").select("code").eq("user_id", currentUser.id).maybeSingle();
   if (error) {
     console.error("fetchMyFriendCode error", error);
     return null;
   }
-  return data?.friend_code || null;
+  return data?.code || null;
 }
 
 async function sendFriendRequest(friendCode) {

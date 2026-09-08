@@ -81,6 +81,7 @@ const bottomNav = document.getElementById("bottomNav");
 const bottomNavButtons = Array.from(bottomNav.querySelectorAll(".bottom-nav-btn"));
 const appViews = {
   home: document.getElementById("view-home"),
+  quran: document.getElementById("view-quran"),
   profile: document.getElementById("view-profile"),
   friends: document.getElementById("view-friends"),
   leaderboard: document.getElementById("view-leaderboard"),
@@ -96,6 +97,7 @@ function switchView(name) {
   if (name === "profile") loadProfileView();
   else if (name === "friends") { showFriendsListSection(); loadFriendsModal(); }
   else if (name === "leaderboard") loadLeaderboardView();
+  else if (name === "quran" && typeof enterQuranTab === "function") enterQuranTab();
 }
 
 bottomNavButtons.forEach((btn) => {

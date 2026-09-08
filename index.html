@@ -208,6 +208,64 @@
     </div>
 
     <!-- ==================================================================
+         QURAN READING VIEW (📖 القرآن) — page-by-page Uthmani text with
+         page/surah/juz navigation and full-Quran text search. Entirely
+         client-side against the same alquran.cloud API used elsewhere;
+         works for guests too, no account needed. See quran-reader.js.
+         ================================================================== -->
+    <div id="view-quran" class="app-view">
+
+      <div class="view-card">
+        <div class="view-head">
+          <div class="view-title">📖 القرآن الكريم</div>
+        </div>
+        <div class="field">
+          <label for="quranSearchInput">ابحث في القرآن</label>
+          <input id="quranSearchInput" type="text" placeholder="اكتب كلمة أو جزءًا من آية...">
+        </div>
+        <div id="quranSearchResults" class="quran-search-results"></div>
+      </div>
+
+      <div class="view-card">
+        <div class="quran-nav-grid">
+          <div class="field">
+            <label for="quranSurahSelect">السورة</label>
+            <select id="quranSurahSelect">
+              <option value="">اذهب إلى سورة...</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="quranJuzSelect">الجزء</label>
+            <select id="quranJuzSelect">
+              <option value="">اذهب إلى جزء...</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="quran-page-jump-row">
+          <div class="field">
+            <label for="quranPageInput">رقم الصفحة</label>
+            <input id="quranPageInput" type="number" min="1" max="604" value="1">
+          </div>
+          <button id="quranGoPageBtn" type="button" class="btn small">اذهب</button>
+        </div>
+        <div id="quranStatus" class="status"></div>
+      </div>
+
+      <div class="view-card quran-reader-card">
+        <div class="quran-page-nav">
+          <button id="quranPrevBtn" type="button" class="btn small ghost">▶ السابقة</button>
+          <div id="quranPageIndicator" class="quran-page-indicator">الصفحة ١ من ٦٠٤</div>
+          <button id="quranNextBtn" type="button" class="btn small ghost">التالية ◀</button>
+        </div>
+        <div id="quranPageContent" class="quran-page-content">
+          <div class="status">جاري التحميل...</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ==================================================================
          PROFILE VIEW (👤 ملفي الشخصي) — merges what used to be three
          separate tabs (إحصائياتي/إنجازاتي/تقدمي) into one screen, each
          section its own standalone card, same visual pattern as a
@@ -723,6 +781,9 @@
     <button type="button" class="bottom-nav-btn active" data-view="home">
       <span class="bn-icon">🏠</span><span class="bn-label">الرئيسية</span>
     </button>
+    <button type="button" class="bottom-nav-btn" data-view="quran">
+      <span class="bn-icon">📖</span><span class="bn-label">القرآن</span>
+    </button>
     <button type="button" class="bottom-nav-btn" data-view="profile">
       <span class="bn-icon">👤</span><span class="bn-label">ملفي الشخصي</span>
     </button>
@@ -849,5 +910,6 @@
   <script src="supabase-client.js"></script>
   <script src="auth-ui.js"></script>
   <script src="app.js"></script>
+  <script src="quran-reader.js"></script>
 </body>
 </html>
