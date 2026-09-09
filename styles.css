@@ -1870,6 +1870,7 @@ select:focus, input:focus {
    is only added as a last-resort fallback if a page still doesn't
    fit even at the smallest readable font size. */
 .quran-page-viewport {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -1884,7 +1885,33 @@ select:focus, input:focus {
 }
 .quran-page-viewport.quran-viewport-scroll { overflow-y: auto; }
 
-.quran-page-content { direction: rtl; }
+/* Corner flourishes, same motif as the flashcard's .mcq-card::before/::after */
+.quran-page-viewport::before, .quran-page-viewport::after {
+  content: "";
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  border-top: 2px solid var(--gold);
+  border-inline-start: 2px solid var(--gold);
+  border-start-start-radius: 12px;
+  opacity: 0.8;
+  pointer-events: none;
+}
+.quran-page-viewport::before { top: 10px; inset-inline-start: 10px; }
+.quran-page-viewport::after {
+  bottom: 10px;
+  inset-inline-end: 10px;
+  border-top: none;
+  border-inline-start: none;
+  border-bottom: 2px solid var(--gold);
+  border-inline-end: 2px solid var(--gold);
+  border-end-end-radius: 12px;
+}
+
+.quran-page-content {
+  direction: rtl;
+  font-family: 'Amiri Quran', 'Amiri', serif;
+}
 
 .quran-surah-divider {
   text-align: center;
@@ -1892,12 +1919,13 @@ select:focus, input:focus {
   font-weight: 700;
   font-size: 19px;
   color: var(--accent-text);
-  margin: 18px 0 6px;
-  padding: 8px 0;
-  border-top: 1px solid rgba(var(--gold-rgb), 0.3);
-  border-bottom: 1px solid rgba(var(--gold-rgb), 0.3);
+  margin: 18px 0 10px;
+  padding: 10px 14px;
+  border: 1.5px solid rgba(var(--gold-rgb), 0.45);
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.14), transparent 65%);
 }
-.quran-surah-divider span { color: var(--gold); margin: 0 8px; }
+.quran-surah-divider span { color: var(--gold); margin: 0 8px; font-size: 0.8em; }
 
 .quran-bismillah {
   text-align: center;
@@ -1915,18 +1943,28 @@ select:focus, input:focus {
 }
 
 .quran-ayah-num {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 4px;
+  min-width: 1.6em;
+  height: 1.6em;
+  padding: 0 0.15em;
   border-radius: 50%;
-  border: 1.5px solid rgba(var(--gold-rgb), 0.5);
-  color: var(--gold);
+  background: radial-gradient(circle at 35% 30%, var(--gold-light), var(--gold) 70%);
+  color: #3a2506;
   font-size: 0.6em;
-  font-weight: 800;
-  margin-inline-start: 2px;
+  font-weight: 900;
+  margin-inline-start: 3px;
+  box-shadow: 0 0 0 2px var(--card), 0 0 0 3.5px rgba(var(--gold-rgb), 0.55);
+}
+.quran-ayah-num::before {
+  content: "";
+  position: absolute;
+  inset: -0.2em;
+  border-radius: 50%;
+  border: 1px dotted rgba(var(--gold-rgb), 0.65);
+  pointer-events: none;
 }
 
 .quran-ayah-audio-btn {
