@@ -1907,6 +1907,7 @@ select:focus, input:focus {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  padding-inline: 8px;
   direction: rtl;
   font-family: 'Amiri Quran', 'Amiri', serif;
 }
@@ -1964,6 +1965,7 @@ select:focus, input:focus {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  vertical-align: middle;
   min-width: 1.6em;
   height: 1.6em;
   padding: 0 0.15em;

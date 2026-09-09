@@ -394,13 +394,18 @@ async function resolveSurahStartPage(surahNumber) {
   }
 }
 
+function setQuranStatus(msg) {
+  quranStatus.textContent = msg || "";
+  quranStatus.style.display = msg ? "block" : "none";
+}
+
 quranSurahSelect.addEventListener("change", async () => {
   const num = parseInt(quranSurahSelect.value, 10);
   quranSurahSelect.value = "";
   if (!num) return;
-  quranStatus.textContent = "جاري الانتقال...";
+  setQuranStatus("جاري الانتقال...");
   const page = await resolveSurahStartPage(num);
-  quranStatus.textContent = page ? "" : "تعذّر تحديد صفحة هذه السورة. حاول مرة أخرى.";
+  setQuranStatus(page ? "" : "تعذّر تحديد صفحة هذه السورة. حاول مرة أخرى.");
   if (page) { closeQuranModal("quranGoToModal"); await quranGoToPage(page); }
 });
 
