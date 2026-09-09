@@ -1981,6 +1981,19 @@ select:focus, input:focus {
   margin-bottom: 4px;
 }
 
+.quran-highlight {
+  background: rgba(var(--gold-rgb), 0.4);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.quran-ayah-target {
+  background: rgba(var(--gold-rgb), 0.14);
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+
 .quran-search-result-text {
   font-size: 15px;
   line-height: 1.8;

@@ -99,6 +99,75 @@ function stripArabicDiacritics(s) {
   return (s || "").replace(/[\u0610-\u061A\u064B-\u065F\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED\u0670]/g, "");
 }
 
+// Builds a regex that matches a (diacritic-stripped) query against
+// full-tashkeel Uthmani text — necessary because the page always
+// displays complete diacritics while search itself is diacritic-free.
+// Also tolerates the common Arabic spelling variants (أ/إ/آ vs ا,
+// ى vs ي, ة vs ه) so a search doesn't miss a real match just because
+// it was typed with a different (but equivalent) letter form. Used
+// both to double-check a result actually contains the text (the
+// search API's own matches aren't always literal substrings) and to
+// highlight it wherever it's shown.
+function buildArabicHighlightRegex(query) {
+  const cleaned = stripArabicDiacritics(query).trim();
+  if (!cleaned) return null;
+  const equivalents = {
+    "ا": "[اأإآ]", "أ": "[اأإآ]", "إ": "[اأإآ]", "آ": "[اأإآ]",
+    "ى": "[ىي]", "ي": "[ىي]",
+    "ة": "[ةه]", "ه": "[ةه]",
+  };
+  const diacriticsGap = "[\\u0610-\\u061A\\u064B-\\u065F\\u06D6-\\u06ED\\u0670]*";
+  const pattern = cleaned.split("").map((ch) => {
+    const escaped = ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return equivalents[ch] || escaped;
+  }).join(diacriticsGap);
+
+  try {
+    return new RegExp(pattern, "g");
+  } catch (e) {
+    return null;
+  }
+}
+
+// Escapes each text segment individually and wraps matches in <mark>
+// — never runs escaping on already-built HTML, so this stays safe.
+function highlightArabicText(text, regex) {
+  if (!regex) return escapeQuranHtml(text);
+  regex.lastIndex = 0;
+  let result = "";
+  let lastIndex = 0;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    if (match[0].length === 0) { regex.lastIndex += 1; continue; }
+    result += escapeQuranHtml(text.slice(lastIndex, match.index));
+    result += `<mark class="quran-highlight">${escapeQuranHtml(match[0])}</mark>`;
+    lastIndex = match.index + match[0].length;
+  }
+  result += escapeQuranHtml(text.slice(lastIndex));
+  return result;
+}
+
+// Resolves the true page (and authoritative global ayah number) for a
+// specific ayah via the ayah-by-reference endpoint — deliberately NOT
+// trusting the search API's own "page"/"number" fields for navigation,
+// since they don't always line up with the actual result.
+async function resolveAyahLocation(surahNumber, ayahInSurah, fallbackGlobalNumber) {
+  const reference = (surahNumber && ayahInSurah) ? `${surahNumber}:${ayahInSurah}` : fallbackGlobalNumber;
+  if (!reference) return null;
+  try {
+    const res = await fetch(`${API_BASE}ayah/${reference}/${EDITION}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP error");
+    const json = await res.json();
+    if (!json?.data) return null;
+    return { page: json.data.page || null, number: json.data.number || fallbackGlobalNumber || null };
+  } catch (e) {
+    return null;
+  }
+}
+
+let quranHighlightAyahNumber = null;
+let quranHighlightRegex = null;
+
 // Local audio lookup (as opposed to app.js's fetchAyahAudioUrl, which
 // is fixed to one reciter for solo/duel mode) — accepts either a
 // global ayah number or a "surah:ayahInSurah" reference, both valid
@@ -218,8 +287,13 @@ function buildQuranPageHtml(ayahs) {
       paragraphOpen = true;
     }
 
+    const isTarget = quranHighlightAyahNumber === ayah.number;
+    const textHtml = (isTarget && quranHighlightRegex)
+      ? highlightArabicText(ayah.text, quranHighlightRegex)
+      : escapeQuranHtml(ayah.text);
+
     html +=
-      `<span class="quran-ayah">${escapeQuranHtml(ayah.text)} ` +
+      `<span class="quran-ayah${isTarget ? " quran-ayah-target" : ""}" data-ayah-number="${ayah.number}">${textHtml} ` +
       `<button type="button" class="quran-ayah-audio-btn" data-ayah-number="${ayah.number}" aria-label="استماع">🔊</button>` +
       `<span class="quran-ayah-num">${toArabicDigits(ayah.numberInSurah)}</span></span> `;
   });
@@ -229,10 +303,15 @@ function buildQuranPageHtml(ayahs) {
 }
 
 // -------- navigation --------
-async function quranGoToPage(page) {
+async function quranGoToPage(page, options) {
+  options = options || {};
   page = clamp(parseInt(page, 10) || 1, 1, 604); // clamp() reused from app.js
   currentQuranPage = page;
   quranStopAudio();
+  if (!options.preserveHighlight) {
+    quranHighlightAyahNumber = null;
+    quranHighlightRegex = null;
+  }
   try { localStorage.setItem(QURAN_LAST_PAGE_KEY, String(page)); } catch (e) { /* ignore */ }
 
   quranPageInput.value = page;
@@ -250,6 +329,14 @@ async function quranGoToPage(page) {
     quranPageContent.innerHTML = '<div class="status">تعذّر تحميل الصفحة. تحقق من الاتصال وحاول مرة أخرى.</div>';
   }
   resizeQuranShell(); // re-measures defensively and re-fits the text
+
+  if (quranHighlightAyahNumber) {
+    const targetEl = quranPageContent.querySelector(".quran-ayah-target");
+    // Normally the whole page is visible at once (that's the point of
+    // the auto-fit sizing), so this only actually moves anything in
+    // the rare case a page fell back to its internal scroll mode.
+    if (targetEl) requestAnimationFrame(() => targetEl.scrollIntoView({ block: "center" }));
+  }
 }
 
 quranGoPageBtn.addEventListener("click", () => quranGoToPage(quranPageInput.value));
@@ -313,36 +400,52 @@ async function runQuranSearch(keyword) {
     quranSearchResults.innerHTML = "";
     return;
   }
+  const regex = buildArabicHighlightRegex(keyword);
   quranSearchResults.innerHTML = '<div class="status">جاري البحث...</div>';
   try {
     const res = await fetch(`${API_BASE}search/${encodeURIComponent(cleaned)}/all/${QURAN_SEARCH_EDITION}`, { cache: "no-store" });
     if (!res.ok) throw new Error("HTTP error");
     const json = await res.json();
-    renderQuranSearchResults(json?.data?.matches || []);
+    renderQuranSearchResults(json?.data?.matches || [], regex);
   } catch (e) {
     quranSearchResults.innerHTML = '<div class="status">تعذّر البحث. تحقق من الاتصال وحاول مرة أخرى.</div>';
   }
 }
 
-function renderQuranSearchResults(matches) {
-  if (!matches.length) {
-    quranSearchResults.innerHTML = '<div class="status">لا توجد نتائج.</div>';
+function renderQuranSearchResults(matches, regex) {
+  // The search API's own "matches" aren't always literal substrings
+  // (see buildArabicHighlightRegex()'s comment) — filter to the ones
+  // that genuinely contain the text before showing anything.
+  const filtered = regex ? matches.filter((m) => { regex.lastIndex = 0; return regex.test(m.text || ""); }) : matches;
+
+  if (!filtered.length) {
+    quranSearchResults.innerHTML = '<div class="status">لا توجد نتائج تحتوي على هذا النص بدقة.</div>';
     return;
   }
 
-  quranSearchResults.innerHTML = matches.slice(0, 30).map((m) => `
-    <div class="quran-search-result" data-page="${m.page}">
-      <div class="quran-search-result-loc">${escapeQuranHtml(m.surah?.name || "")} — آية ${toArabicDigits(m.numberInSurah)} — صفحة ${toArabicDigits(m.page)}</div>
-      <div class="quran-search-result-text">${escapeQuranHtml(m.text)}</div>
+  quranSearchResults.innerHTML = filtered.slice(0, 30).map((m) => `
+    <div class="quran-search-result" data-surah="${m.surah?.number || ""}" data-ayah-in-surah="${m.numberInSurah || ""}" data-global="${m.number || ""}">
+      <div class="quran-search-result-loc">${escapeQuranHtml(m.surah?.name || "")} — آية ${toArabicDigits(m.numberInSurah)}</div>
+      <div class="quran-search-result-text">${highlightArabicText(m.text || "", regex)}</div>
     </div>`).join("");
 
   quranSearchResults.querySelectorAll(".quran-search-result").forEach((row) => {
-    row.addEventListener("click", () => {
-      const page = Number(row.dataset.page);
+    row.addEventListener("click", async () => {
+      const surahNumber = parseInt(row.dataset.surah, 10) || null;
+      const ayahInSurah = parseInt(row.dataset.ayahInSurah, 10) || null;
+      const globalNumber = parseInt(row.dataset.global, 10) || null;
+
       quranSearchInput.value = "";
+      quranSearchResults.innerHTML = '<div class="status">جاري الانتقال...</div>';
+      const location = await resolveAyahLocation(surahNumber, ayahInSurah, globalNumber);
       quranSearchResults.innerHTML = "";
       closeQuranModal("quranSearchModal");
-      if (page) quranGoToPage(page);
+
+      if (location?.page) {
+        quranHighlightAyahNumber = location.number;
+        quranHighlightRegex = regex;
+        await quranGoToPage(location.page, { preserveHighlight: true });
+      }
     });
   });
 }
