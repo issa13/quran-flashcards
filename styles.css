@@ -1799,26 +1799,61 @@ select:focus, input:focus {
 .achievement-toast-name { font-size: 13px; font-weight: 800; }
 
 /* -------- Quran reading tab (📖 القرآن) -------- */
-.quran-nav-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+.quran-shell {
+  width: min(94vw, var(--maxw));
+  display: flex;
+  flex-direction: column;
   gap: 10px;
 }
 
-.quran-page-jump-row {
+.quran-topbar {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  margin-top: 12px;
 }
-.quran-page-jump-row .field { flex: 1; }
+
+.quran-menu-wrap { position: relative; }
+.quran-menu-btn { font-size: 18px; line-height: 1; padding: 8px 14px; }
+
+.quran-menu-dropdown {
+  position: absolute;
+  inset-inline-end: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  min-width: 210px;
+  background: var(--card);
+  border: 1.5px solid rgba(var(--gold-rgb), 0.3);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-pop);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.quran-menu-item {
+  display: block;
+  width: 100%;
+  text-align: start;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease);
+}
+.quran-menu-item:hover { background: var(--success-bg); }
 
 .quran-page-nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 14px;
 }
 
 .quran-page-indicator {
@@ -1828,7 +1863,26 @@ select:focus, input:focus {
   white-space: nowrap;
 }
 
-.quran-reader-card { min-height: 260px; }
+/* The fixed-size reading box — resizeQuranShell()/fitQuranPageText()
+   in quran-reader.js give this an explicit pixel height (viewport
+   minus everything else on screen) and shrink the text to fit inside
+   it, so normally nothing here ever scrolls. .quran-viewport-scroll
+   is only added as a last-resort fallback if a page still doesn't
+   fit even at the smallest readable font size. */
+.quran-page-viewport {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--card);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(var(--gold-rgb), 0.22);
+  border-top: 3px solid var(--gold);
+  box-shadow: var(--shadow-card);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+.quran-page-viewport.quran-viewport-scroll { overflow-y: auto; }
 
 .quran-page-content { direction: rtl; }
 
@@ -1854,7 +1908,6 @@ select:focus, input:focus {
 }
 
 .quran-page-flow {
-  font-size: 19px;
   line-height: 2.4;
   text-align: justify;
   color: var(--ink);
@@ -1871,7 +1924,7 @@ select:focus, input:focus {
   border-radius: 50%;
   border: 1.5px solid rgba(var(--gold-rgb), 0.5);
   color: var(--gold);
-  font-size: 12px;
+  font-size: 0.6em;
   font-weight: 800;
   margin-inline-start: 2px;
 }
@@ -1880,13 +1933,27 @@ select:focus, input:focus {
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 0.65em;
   padding: 0 2px;
   color: var(--muted);
   vertical-align: middle;
 }
 .quran-ayah-audio-btn.playing { color: var(--emerald); }
 .quran-ayah-audio-btn:disabled { opacity: 0.5; cursor: default; }
+
+.quran-page-jump-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.quran-page-jump-row .field { flex: 1; }
+
+.quran-nav-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
 
 .quran-search-results {
   margin-top: 10px;
@@ -1921,8 +1988,87 @@ select:focus, input:focus {
   direction: rtl;
 }
 
-@media (max-width: 380px) {
-  .quran-page-flow { font-size: 17px; line-height: 2.2; }
+.quran-bookmark-add-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.quran-bookmark-add-row input { flex: 1; min-width: 140px; }
+
+.quran-bookmarks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quran-bookmark-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid rgba(var(--ink-rgb), 0.1);
+  background: var(--card);
+  flex-wrap: wrap;
+}
+.quran-bookmark-info { min-width: 0; }
+.quran-bookmark-name {
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quran-bookmark-loc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.quran-bookmark-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+
+.quran-reciter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.quran-reciter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid rgba(var(--ink-rgb), 0.1);
+  background: var(--card);
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--ink);
+  transition: border-color 0.15s var(--ease), background-color 0.15s var(--ease);
+}
+.quran-reciter-row.selected {
+  border-color: rgba(var(--emerald-rgb), 0.4);
+  background: var(--success-bg);
+  color: var(--accent-text);
+}
+.quran-reciter-check { color: var(--emerald); font-weight: 900; }
+
+.quran-listen-player {
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--success-bg);
+  border: 1.5px solid rgba(var(--emerald-rgb), 0.3);
+  text-align: center;
+}
+.quran-listen-now-playing {
+  font-weight: 800;
+  font-size: 14px;
+  color: var(--accent-text);
+}
+.quran-listen-controls {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 10px;
 }
 
 @media (prefers-reduced-motion: reduce) {

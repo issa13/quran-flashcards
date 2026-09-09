@@ -208,61 +208,47 @@
     </div>
 
     <!-- ==================================================================
-         QURAN READING VIEW (📖 القرآن) — page-by-page Uthmani text with
-         page/surah/juz navigation and full-Quran text search. Entirely
-         client-side against the same alquran.cloud API used elsewhere;
-         works for guests too, no account needed. See quran-reader.js.
+         QURAN READING VIEW (📖 القرآن) — page-by-page Uthmani text.
+         Fixed to the available viewport height (no page-level scroll);
+         the text itself auto-shrinks to fit (see quran-reader.js's
+         resizeQuranShell()/fitQuranPageText()), falling back to an
+         internal scroll only if a page truly can't fit even at the
+         smallest readable size. Everything else (search, page/surah/
+         juz navigation, bookmarks, reciter choice, range listening)
+         lives behind the ⋮ menu as modals, keeping this screen to just
+         the Quran itself. Entirely client-side against the same
+         alquran.cloud API used elsewhere; works for guests too.
          ================================================================== -->
     <div id="view-quran" class="app-view">
+      <div class="quran-shell">
 
-      <div class="view-card">
-        <div class="view-head">
+        <div class="quran-topbar">
           <div class="view-title">📖 القرآن الكريم</div>
-        </div>
-        <div class="field">
-          <label for="quranSearchInput">ابحث في القرآن</label>
-          <input id="quranSearchInput" type="text" placeholder="اكتب كلمة أو جزءًا من آية...">
-        </div>
-        <div id="quranSearchResults" class="quran-search-results"></div>
-      </div>
-
-      <div class="view-card">
-        <div class="quran-nav-grid">
-          <div class="field">
-            <label for="quranSurahSelect">السورة</label>
-            <select id="quranSurahSelect">
-              <option value="">اذهب إلى سورة...</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="quranJuzSelect">الجزء</label>
-            <select id="quranJuzSelect">
-              <option value="">اذهب إلى جزء...</option>
-            </select>
+          <div class="quran-menu-wrap">
+            <button id="quranMenuBtn" type="button" class="btn small ghost quran-menu-btn" aria-haspopup="true" aria-expanded="false" aria-label="القائمة">⋮</button>
+            <div id="quranMenuDropdown" class="quran-menu-dropdown" style="display:none;">
+              <button type="button" class="quran-menu-item" data-modal="quranSearchModal">🔍 بحث</button>
+              <button type="button" class="quran-menu-item" data-modal="quranGoToModal">📍 الذهاب إلى</button>
+              <button type="button" class="quran-menu-item" data-modal="quranBookmarksModal">🔖 العلامات المرجعية</button>
+              <button type="button" class="quran-menu-item" data-modal="quranReciterModal">🎙️ القارئ</button>
+              <button type="button" class="quran-menu-item" data-modal="quranListenModal">🎧 استماع لمقطع</button>
+            </div>
           </div>
         </div>
 
-        <div class="quran-page-jump-row">
-          <div class="field">
-            <label for="quranPageInput">رقم الصفحة</label>
-            <input id="quranPageInput" type="number" min="1" max="604" value="1">
-          </div>
-          <button id="quranGoPageBtn" type="button" class="btn small">اذهب</button>
-        </div>
-        <div id="quranStatus" class="status"></div>
-      </div>
-
-      <div class="view-card quran-reader-card">
         <div class="quran-page-nav">
           <button id="quranPrevBtn" type="button" class="btn small ghost">▶ السابقة</button>
           <div id="quranPageIndicator" class="quran-page-indicator">الصفحة ١ من ٦٠٤</div>
           <button id="quranNextBtn" type="button" class="btn small ghost">التالية ◀</button>
         </div>
-        <div id="quranPageContent" class="quran-page-content">
-          <div class="status">جاري التحميل...</div>
-        </div>
-      </div>
 
+        <div id="quranPageViewport" class="quran-page-viewport">
+          <div id="quranPageContent" class="quran-page-content">
+            <div class="status">جاري التحميل...</div>
+          </div>
+        </div>
+
+      </div>
     </div>
 
     <!-- ==================================================================
@@ -850,6 +836,122 @@
   </div>
 
   <!-- Create session modal (unchanged — kept as a popup) -->
+  <!-- Quran tab modals (opened from the ⋮ menu in view-quran) -->
+  <div id="quranSearchModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">🔍 بحث في القرآن</div>
+        <button class="modal-close" data-close-modal="quranSearchModal">✕</button>
+      </div>
+      <div class="field">
+        <input id="quranSearchInput" type="text" placeholder="اكتب كلمة أو جزءًا من آية...">
+      </div>
+      <div id="quranSearchResults" class="quran-search-results"></div>
+    </div>
+  </div>
+
+  <div id="quranGoToModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">📍 الذهاب إلى</div>
+        <button class="modal-close" data-close-modal="quranGoToModal">✕</button>
+      </div>
+
+      <div class="quran-nav-grid">
+        <div class="field">
+          <label for="quranSurahSelect">السورة</label>
+          <select id="quranSurahSelect">
+            <option value="">اذهب إلى سورة...</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="quranJuzSelect">الجزء</label>
+          <select id="quranJuzSelect">
+            <option value="">اذهب إلى جزء...</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="quran-page-jump-row">
+        <div class="field">
+          <label for="quranPageInput">رقم الصفحة</label>
+          <input id="quranPageInput" type="number" min="1" max="604" value="1">
+        </div>
+        <button id="quranGoPageBtn" type="button" class="btn small">اذهب</button>
+      </div>
+      <div id="quranStatus" class="status"></div>
+    </div>
+  </div>
+
+  <div id="quranBookmarksModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">🔖 العلامات المرجعية</div>
+        <button class="modal-close" data-close-modal="quranBookmarksModal">✕</button>
+      </div>
+
+      <div class="quran-bookmark-add-row">
+        <input id="quranBookmarkNameInput" type="text" placeholder="اسم العلامة (مثال: وردي اليومي)" maxlength="40">
+        <button id="quranAddBookmarkBtn" type="button" class="btn small">＋ حفظ الصفحة الحالية</button>
+      </div>
+      <div id="quranBookmarksList" class="quran-bookmarks-list"></div>
+    </div>
+  </div>
+
+  <div id="quranReciterModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">🎙️ اختر القارئ</div>
+        <button class="modal-close" data-close-modal="quranReciterModal">✕</button>
+      </div>
+      <div id="quranReciterList" class="quran-reciter-list"></div>
+    </div>
+  </div>
+
+  <div id="quranListenModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">🎧 استماع لمقطع</div>
+        <button class="modal-close" data-close-modal="quranListenModal">✕</button>
+      </div>
+
+      <div class="section-label">من</div>
+      <div class="row">
+        <div class="field">
+          <label for="quranListenFromSurah">السورة</label>
+          <select id="quranListenFromSurah"><option value="">اختر سورة...</option></select>
+        </div>
+        <div class="field">
+          <label for="quranListenFromAyah">الآية</label>
+          <input id="quranListenFromAyah" type="number" min="1" value="1">
+        </div>
+      </div>
+
+      <div class="section-label">إلى</div>
+      <div class="row">
+        <div class="field">
+          <label for="quranListenToSurah">السورة</label>
+          <select id="quranListenToSurah"><option value="">اختر سورة...</option></select>
+        </div>
+        <div class="field">
+          <label for="quranListenToAyah">الآية</label>
+          <input id="quranListenToAyah" type="number" min="1" value="1">
+        </div>
+      </div>
+
+      <button id="quranListenStartBtn" type="button" class="btn primary" style="margin-top:14px; width:100%;">ابدأ الاستماع</button>
+      <div id="quranListenError" class="status"></div>
+
+      <div id="quranListenPlayer" class="quran-listen-player" style="display:none;">
+        <div id="quranListenNowPlaying" class="quran-listen-now-playing"></div>
+        <div class="quran-listen-controls">
+          <button id="quranListenPauseBtn" type="button" class="btn small ghost">⏸️ إيقاف مؤقت</button>
+          <button id="quranListenStopBtn" type="button" class="btn small ghost danger">⏹️ إيقاف</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="createSessionModal" class="modal-overlay" style="display:none;">
     <div class="modal">
       <div class="modal-head">
