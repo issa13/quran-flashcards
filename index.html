@@ -236,15 +236,15 @@
           </div>
         </div>
 
-        <div class="quran-page-nav">
-          <button id="quranPrevBtn" type="button" class="btn small ghost">▶ السابقة</button>
-          <div id="quranPageIndicator" class="quran-page-indicator">الصفحة ١ من ٦٠٤</div>
-          <button id="quranNextBtn" type="button" class="btn small ghost">التالية ◀</button>
-        </div>
-
         <div id="quranPageViewport" class="quran-page-viewport">
           <div id="quranPageContent" class="quran-page-content">
             <div class="status">جاري التحميل...</div>
+          </div>
+
+          <div class="quran-page-nav">
+            <button id="quranPrevBtn" type="button" class="btn small ghost">▶ السابقة</button>
+            <div id="quranPageIndicator" class="quran-page-indicator">الصفحة ١ من ٦٠٤</div>
+            <button id="quranNextBtn" type="button" class="btn small ghost">التالية ◀</button>
           </div>
         </div>
 
@@ -764,23 +764,23 @@
        item swaps which .app-view is shown above; there are no popups.
        ================================================================== -->
   <nav class="bottom-nav" id="bottomNav" aria-label="التنقل الرئيسي">
-    <button type="button" class="bottom-nav-btn active" data-view="home">
-      <span class="bn-icon">🏠</span><span class="bn-label">الرئيسية</span>
-    </button>
     <button type="button" class="bottom-nav-btn" data-view="quran">
       <span class="bn-icon">📖</span><span class="bn-label">القرآن</span>
     </button>
-    <button type="button" class="bottom-nav-btn" data-view="profile">
-      <span class="bn-icon">👤</span><span class="bn-label">ملفي الشخصي</span>
+    <button type="button" class="bottom-nav-btn active" data-view="home">
+      <span class="bn-icon">📝</span><span class="bn-label">اختبارات</span>
+    </button>
+    <button type="button" class="bottom-nav-btn" data-view="challenge">
+      <span class="bn-icon">⚔️</span><span class="bn-label">تحديات</span>
+    </button>
+    <button type="button" class="bottom-nav-btn" data-view="leaderboard">
+      <span class="bn-icon">🏆</span><span class="bn-label">لوحة الصدارة</span>
     </button>
     <button type="button" class="bottom-nav-btn" data-view="friends">
       <span class="bn-icon">👥</span><span class="bn-label">أصدقائي</span>
     </button>
-    <button type="button" class="bottom-nav-btn" data-view="leaderboard">
-      <span class="bn-icon">🏆</span><span class="bn-label">الصدارة</span>
-    </button>
-    <button type="button" class="bottom-nav-btn" data-view="challenge">
-      <span class="bn-icon">⚔️</span><span class="bn-label">تحديات</span>
+    <button type="button" class="bottom-nav-btn" data-view="profile">
+      <span class="bn-icon">👤</span><span class="bn-label">ملفي الشخصي</span>
     </button>
   </nav>
 

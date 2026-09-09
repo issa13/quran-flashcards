@@ -229,18 +229,22 @@ body::before {
   bottom: 0;
   z-index: 40;
   display: flex;
-  justify-content: space-around;
   align-items: stretch;
   gap: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
   background: var(--card);
   border-top: 1.5px solid rgba(var(--gold-rgb), 0.3);
   box-shadow: 0 -10px 26px -14px rgba(var(--ink-rgb), 0.3);
   padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
 }
+.bottom-nav::-webkit-scrollbar { display: none; }
 
 .bottom-nav-btn {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 0 0 auto;
+  min-width: 68px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -251,7 +255,7 @@ body::before {
   color: var(--muted);
   font-family: inherit;
   cursor: pointer;
-  padding: 6px 2px;
+  padding: 6px 10px;
   border-radius: 12px;
   transition: background-color 0.15s var(--ease), color 0.15s var(--ease);
 }
@@ -264,9 +268,6 @@ body::before {
 .bottom-nav-btn .bn-label {
   font-size: 10px;
   font-weight: 800;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1849,13 +1850,6 @@ select:focus, input:focus {
 }
 .quran-menu-item:hover { background: var(--success-bg); }
 
-.quran-page-nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
 .quran-page-indicator {
   font-size: 13px;
   font-weight: 800;
@@ -1865,15 +1859,13 @@ select:focus, input:focus {
 
 /* The fixed-size reading box — resizeQuranShell()/fitQuranPageText()
    in quran-reader.js give this an explicit pixel height (viewport
-   minus everything else on screen) and shrink the text to fit inside
-   it, so normally nothing here ever scrolls. .quran-viewport-scroll
-   is only added as a last-resort fallback if a page still doesn't
-   fit even at the smallest readable font size. */
+   minus everything else on screen); quran-page-content (below) is the
+   part that actually shrinks/stretches to fit, while this footer nav
+   keeps its own natural height as a sibling inside the same box. */
 .quran-page-viewport {
   position: relative;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
   background: var(--card);
   border-radius: var(--radius-lg);
   border: 1px solid rgba(var(--gold-rgb), 0.22);
@@ -1883,7 +1875,6 @@ select:focus, input:focus {
   display: flex;
   flex-direction: column;
 }
-.quran-page-viewport.quran-viewport-scroll { overflow-y: auto; }
 
 /* Corner flourishes, same motif as the flashcard's .mcq-card::before/::after */
 .quran-page-viewport::before, .quran-page-viewport::after {
@@ -1908,9 +1899,29 @@ select:focus, input:focus {
   border-end-end-radius: 12px;
 }
 
+/* The actual fit/scroll target — see fitQuranPageText() in
+   quran-reader.js. .quran-viewport-scroll is only added as a
+   last-resort fallback if a page still doesn't fit even at the
+   smallest readable font size. */
 .quran-page-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   direction: rtl;
   font-family: 'Amiri Quran', 'Amiri', serif;
+}
+.quran-page-content.quran-viewport-scroll { overflow-y: auto; }
+
+/* Footer nav row, now inside the reading box itself rather than above it */
+.quran-page-nav {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(var(--gold-rgb), 0.3);
 }
 
 .quran-surah-divider {
@@ -1918,6 +1929,7 @@ select:focus, input:focus {
   font-family: 'Aref Ruqaa', serif;
   font-weight: 700;
   font-size: 19px;
+  line-height: 1.4;
   color: var(--accent-text);
   margin: 18px 0 10px;
   padding: 10px 14px;
@@ -1931,12 +1943,17 @@ select:focus, input:focus {
   text-align: center;
   font-family: 'Aref Ruqaa', serif;
   font-size: 17px;
+  line-height: 1.4;
   color: var(--ink);
   margin: 4px 0 14px;
 }
 
+/* line-height is deliberately NOT set here — fitQuranPageText() sets
+   it dynamically on the parent (.quran-page-content) and stretches it
+   to close any leftover gap so the last line lands at the bottom edge
+   rather than leaving empty space, and a fixed value here would
+   silently override that inherited value the same way font-size once did. */
 .quran-page-flow {
-  line-height: 2.4;
   text-align: justify;
   color: var(--ink);
   margin: 0 0 8px;

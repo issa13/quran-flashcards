@@ -94,6 +94,10 @@ function switchView(name) {
   Object.entries(appViews).forEach(([key, el]) => el.classList.toggle("active", key === name));
   bottomNavButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.view === name));
 
+  // The session name is only meaningful on the main quiz view — it'd
+  // just be visual clutter on every other tab.
+  topbarSessionName.style.display = (name === "home") ? "" : "none";
+
   if (name === "profile") loadProfileView();
   else if (name === "friends") { showFriendsListSection(); loadFriendsModal(); }
   else if (name === "leaderboard") loadLeaderboardView();

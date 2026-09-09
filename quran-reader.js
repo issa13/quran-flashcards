@@ -200,20 +200,42 @@ function resizeQuranShell() {
 }
 
 function fitQuranPageText() {
-  if (!quranPageViewportEl || !quranPageContent) return;
+  if (!quranPageContent) return;
   const maxFont = 21, minFont = 12;
+  const baseLineHeight = 2.2;
   let fontSize = maxFont;
-  quranPageContent.style.fontSize = fontSize + "px";
-  quranPageViewportEl.classList.remove("quran-viewport-scroll");
 
-  while (quranPageContent.scrollHeight > quranPageViewportEl.clientHeight && fontSize > minFont) {
+  quranPageContent.style.lineHeight = String(baseLineHeight);
+  quranPageContent.style.fontSize = fontSize + "px";
+  quranPageContent.classList.remove("quran-viewport-scroll");
+
+  // 1) shrink font-size until the page fits at the base line-height
+  while (quranPageContent.scrollHeight > quranPageContent.clientHeight && fontSize > minFont) {
     fontSize -= 1;
     quranPageContent.style.fontSize = fontSize + "px";
   }
-  if (quranPageContent.scrollHeight > quranPageViewportEl.clientHeight) {
+
+  if (quranPageContent.scrollHeight > quranPageContent.clientHeight) {
     // Genuinely doesn't fit even at the smallest size — allow an
     // internal scroll rather than clip content or shrink further.
-    quranPageViewportEl.classList.add("quran-viewport-scroll");
+    quranPageContent.classList.add("quran-viewport-scroll");
+    return;
+  }
+
+  // 2) stretch line-height to close the remaining gap, so the last
+  // line lands at (or very near) the bottom edge like a real Mushaf
+  // page, instead of leaving empty space beneath the text.
+  let lineHeight = baseLineHeight;
+  for (let i = 0; i < 40; i++) {
+    const gap = quranPageContent.clientHeight - quranPageContent.scrollHeight;
+    if (gap <= 2) break;
+    const next = lineHeight + 0.05;
+    quranPageContent.style.lineHeight = String(next);
+    if (quranPageContent.scrollHeight > quranPageContent.clientHeight) {
+      quranPageContent.style.lineHeight = String(lineHeight); // overshot — revert and stop
+      break;
+    }
+    lineHeight = next;
   }
 }
 
