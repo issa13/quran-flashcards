@@ -1857,10 +1857,10 @@ select:focus, input:focus {
   white-space: nowrap;
 }
 
-/* The fixed-size reading box — resizeQuranShell()/fitQuranPageText()
-   in quran-reader.js give this an explicit pixel height (viewport
-   minus everything else on screen); quran-page-content (below) is the
-   part that actually shrinks/stretches to fit, while this footer nav
+/* The fixed-size reading box — resizeQuranShell()/fitMushafPage() in
+   quran-reader.js give this an explicit pixel height (viewport minus
+   everything else on screen); quran-page-content (below) is the part
+   that actually renders/fits the Mushaf lines, while this footer nav
    keeps its own natural height as a sibling inside the same box. */
 .quran-page-viewport {
   position: relative;
@@ -1899,7 +1899,7 @@ select:focus, input:focus {
   border-end-end-radius: 12px;
 }
 
-/* The actual fit/scroll target — see fitQuranPageText() in
+/* The actual fit/scroll target — see fitMushafPage() in
    quran-reader.js. .quran-viewport-scroll is only added as a
    last-resort fallback if a page still doesn't fit even at the
    smallest readable font size. */
@@ -1913,7 +1913,7 @@ select:focus, input:focus {
 }
 .quran-page-content.quran-viewport-scroll { overflow-y: auto; }
 
-/* Footer nav row, now inside the reading box itself rather than above it */
+/* Footer nav row, inside the reading box itself rather than above it */
 .quran-page-nav {
   flex: 0 0 auto;
   display: flex;
@@ -1925,15 +1925,45 @@ select:focus, input:focus {
   border-top: 1px dashed rgba(var(--gold-rgb), 0.3);
 }
 
+/* The real Mushaf layout: one row per dataset line (surah-header /
+   basmala / text). justify-content: space-between distributes however
+   many lines the page has (normally 15) evenly across the FULL height
+   of the box, with the first line at the top and the last flush
+   against the bottom edge — no JS spacing math needed. */
+.quran-mushaf-lines {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.quran-mushaf-line { width: 100%; }
+
+/* Each text line is its own nowrap flex row — fitMushafPage() shrinks
+   the font until every line's natural width fits here without
+   wrapping, since a dataset line MUST render as exactly one visual
+   line to match the real Mushaf. justify-content: space-between
+   stretches the gaps between words so the line reaches both margins,
+   mimicking the print's own edge-to-edge justified text. */
+.quran-line-text {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  align-items: baseline;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.quran-word { white-space: nowrap; }
+
 .quran-surah-divider {
   text-align: center;
   font-family: 'Aref Ruqaa', serif;
   font-weight: 700;
   font-size: 19px;
-  line-height: 1.4;
+  line-height: 1.3;
   color: var(--accent-text);
-  margin: 18px 0 10px;
-  padding: 10px 14px;
+  padding: 4px 14px;
   border: 1.5px solid rgba(var(--gold-rgb), 0.45);
   border-radius: var(--radius-md);
   background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.14), transparent 65%);
@@ -1944,20 +1974,8 @@ select:focus, input:focus {
   text-align: center;
   font-family: 'Aref Ruqaa', serif;
   font-size: 17px;
-  line-height: 1.4;
+  line-height: 1.3;
   color: var(--ink);
-  margin: 4px 0 14px;
-}
-
-/* line-height is deliberately NOT set here — fitQuranPageText() sets
-   it dynamically on the parent (.quran-page-content) and stretches it
-   to close any leftover gap so the last line lands at the bottom edge
-   rather than leaving empty space, and a fixed value here would
-   silently override that inherited value the same way font-size once did. */
-.quran-page-flow {
-  text-align: justify;
-  color: var(--ink);
-  margin: 0 0 8px;
 }
 
 .quran-ayah-num {
@@ -1965,7 +1983,7 @@ select:focus, input:focus {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  vertical-align: middle;
+  align-self: center;
   min-width: 1.6em;
   height: 1.6em;
   padding: 0 0.15em;
@@ -1993,7 +2011,7 @@ select:focus, input:focus {
   font-size: 0.65em;
   padding: 0 2px;
   color: var(--muted);
-  vertical-align: middle;
+  align-self: center;
 }
 .quran-ayah-audio-btn.playing { color: var(--emerald); }
 .quran-ayah-audio-btn:disabled { opacity: 0.5; cursor: default; }

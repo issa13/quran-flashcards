@@ -208,16 +208,20 @@
     </div>
 
     <!-- ==================================================================
-         QURAN READING VIEW (📖 القرآن) — page-by-page Uthmani text.
-         Fixed to the available viewport height (no page-level scroll);
-         the text itself auto-shrinks to fit (see quran-reader.js's
-         resizeQuranShell()/fitQuranPageText()), falling back to an
+         QURAN READING VIEW (📖 القرآن) — renders the real 604-page,
+         15-line-per-page Mushaf layout from a locally-mirrored dataset
+         (see download-mushaf-layout.sh and mushaf-layout/page-XXX.json),
+         fixed to the available viewport height (no page-level scroll).
+         quran-reader.js's fitMushafPage() shrinks the font until every
+         line fits its width without wrapping; CSS (.quran-mushaf-lines)
+         distributes the lines evenly across the full height, so the
+         last line always lands at the bottom edge. Falls back to an
          internal scroll only if a page truly can't fit even at the
          smallest readable size. Everything else (search, page/surah/
          juz navigation, bookmarks, reciter choice, range listening)
          lives behind the ⋮ menu as modals, keeping this screen to just
-         the Quran itself. Entirely client-side against the same
-         alquran.cloud API used elsewhere; works for guests too.
+         the Quran itself. Works for guests too — the line-layout data
+         is local; search/audio/surah-catalog still use alquran.cloud.
          ================================================================== -->
     <div id="view-quran" class="app-view">
       <div class="quran-shell">

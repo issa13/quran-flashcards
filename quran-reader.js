@@ -1,19 +1,21 @@
-// Quran reading tab (📖 القرآن) — a fixed-to-viewport, page-by-page
-// Uthmani reader. The screen itself only ever shows the page; search,
-// page/surah/juz navigation, bookmarks, reciter choice, and
-// listen-to-a-range all live behind the ⋮ menu as modals. Entirely
-// client-side against the same alquran.cloud API the rest of the app
-// already uses; works for guests too, no account or Supabase
-// involvement at all.
+// Quran reading tab (📖 القرآن) — a fixed-to-viewport reader that
+// renders the REAL 604-page, 15-line-per-page Mushaf layout (from a
+// locally-mirrored dataset — see download-mushaf-layout.sh and
+// mushaf-layout/page-XXX.json), not a re-flowed paragraph. The screen
+// itself only ever shows the page; search, page/surah/juz navigation,
+// bookmarks, reciter choice, and listen-to-a-range all live behind
+// the ⋮ menu as modals. Works for guests too, no account needed —
+// the page-layout data is local static files, and everything else
+// (search, audio, surah catalog) is the same public alquran.cloud API
+// the rest of the app already uses.
 //
 // Deliberately loaded AFTER app.js (see index.html) and reuses its
 // globals directly rather than re-declaring them — API_BASE, EDITION,
-// clamp(), fetchPageAyahs() (shares its page cache), and
-// fetchSurahCatalog() (shares its cache) all come from app.js. This
-// mirrors how auth-ui.js and app.js already share globals across
-// script tags in this project. Audio is handled locally, though (see
-// fetchQuranAyahAudioUrl() below), since this tab needs a
-// user-selectable reciter, unlike solo/duel mode's fixed one.
+// clamp(), and fetchSurahCatalog() (shares its cache) all come from
+// app.js. This mirrors how auth-ui.js and app.js already share
+// globals across script tags in this project. Audio is handled
+// locally, though (see fetchQuranAyahAudioUrl() below), since this
+// tab needs a user-selectable reciter, unlike solo/duel mode's fixed one.
 
 const QURAN_LAST_PAGE_KEY = "qf_quran_last_page";
 const QURAN_BOOKMARKS_KEY = "qf_quran_bookmarks";
@@ -151,6 +153,11 @@ function highlightArabicText(text, regex) {
 // specific ayah via the ayah-by-reference endpoint — deliberately NOT
 // trusting the search API's own "page"/"number" fields for navigation,
 // since they don't always line up with the actual result.
+// Resolves the true page for a specific ayah via the ayah-by-reference
+// endpoint (still needed even with the mirrored line-layout dataset,
+// since that dataset is organized by page, not searchable by surah)
+// — also returns the authoritative surah/ayah numbers, since the
+// search API's own fields aren't always reliable for navigation.
 async function resolveAyahLocation(surahNumber, ayahInSurah, fallbackGlobalNumber) {
   const reference = (surahNumber && ayahInSurah) ? `${surahNumber}:${ayahInSurah}` : fallbackGlobalNumber;
   if (!reference) return null;
@@ -159,13 +166,20 @@ async function resolveAyahLocation(surahNumber, ayahInSurah, fallbackGlobalNumbe
     if (!res.ok) throw new Error("HTTP error");
     const json = await res.json();
     if (!json?.data) return null;
-    return { page: json.data.page || null, number: json.data.number || fallbackGlobalNumber || null };
+    return {
+      page: json.data.page || null,
+      surah: json.data.surah?.number || surahNumber || null,
+      ayah: json.data.numberInSurah || ayahInSurah || null,
+    };
   } catch (e) {
     return null;
   }
 }
 
-let quranHighlightAyahNumber = null;
+// "surah:ayah" string — the mirrored line-layout dataset identifies
+// ayahs this way (via each word's own location), not by a global
+// ayah number, so highlighting keys off the same thing.
+let quranHighlightAyahKey = null;
 let quranHighlightRegex = null;
 
 // Local audio lookup (as opposed to app.js's fetchAyahAudioUrl, which
@@ -181,10 +195,14 @@ async function fetchQuranAyahAudioUrl(reference, edition) {
 
 // ============================================================
 // Fixed-viewport sizing — the reading box gets an explicit pixel
-// height (available viewport space, measured live) and the text
-// shrinks to fit inside it, so the person never has to scroll to see
-// a whole page. Falls back to an internal scroll only if a page still
-// doesn't fit even at the smallest readable size.
+// height (available viewport space, measured live). Actual vertical
+// distribution of the mirrored dataset's real Mushaf lines across
+// that height is handled declaratively by CSS (.quran-mushaf-lines
+// uses justify-content: space-between, so the last line always lands
+// exactly at the bottom edge) — the only thing JS still needs to do
+// is pick a font-size small enough that every individual line fits
+// its available WIDTH without wrapping, since each dataset line must
+// render as exactly one visual line to match the real Mushaf.
 // ============================================================
 function resizeQuranShell() {
   const quranView = document.getElementById("view-quran");
@@ -196,46 +214,34 @@ function resizeQuranShell() {
   const wrapPaddingBottom = parseFloat(getComputedStyle(wrapEl).paddingBottom) || 0;
   const available = window.innerHeight - top - wrapPaddingBottom - 8; // small safety margin
   quranShellEl.style.height = Math.max(280, available) + "px";
-  fitQuranPageText();
+  fitMushafPage();
 }
 
-function fitQuranPageText() {
+function fitMushafPage() {
   if (!quranPageContent) return;
-  const maxFont = 21, minFont = 12;
-  const baseLineHeight = 2.2;
+  const maxFont = 24, minFont = 10;
   let fontSize = maxFont;
 
-  quranPageContent.style.lineHeight = String(baseLineHeight);
   quranPageContent.style.fontSize = fontSize + "px";
   quranPageContent.classList.remove("quran-viewport-scroll");
 
-  // 1) shrink font-size until the page fits at the base line-height
-  while (quranPageContent.scrollHeight > quranPageContent.clientHeight && fontSize > minFont) {
+  const anyLineOverflowsWidth = () =>
+    Array.from(quranPageContent.querySelectorAll(".quran-mushaf-line"))
+      .some((el) => el.scrollWidth > el.clientWidth + 1);
+
+  // Shrink until every individual line fits its available width
+  // without wrapping — a dataset "line" that wrapped into two visual
+  // rows would break the real 15-line-per-page layout entirely.
+  while (anyLineOverflowsWidth() && fontSize > minFont) {
     fontSize -= 1;
     quranPageContent.style.fontSize = fontSize + "px";
   }
 
+  // Even at the smallest readable size the whole block might still be
+  // taller than the box on an unusually small screen — fall back to
+  // an internal scroll rather than clip content.
   if (quranPageContent.scrollHeight > quranPageContent.clientHeight) {
-    // Genuinely doesn't fit even at the smallest size — allow an
-    // internal scroll rather than clip content or shrink further.
     quranPageContent.classList.add("quran-viewport-scroll");
-    return;
-  }
-
-  // 2) stretch line-height to close the remaining gap, so the last
-  // line lands at (or very near) the bottom edge like a real Mushaf
-  // page, instead of leaving empty space beneath the text.
-  let lineHeight = baseLineHeight;
-  for (let i = 0; i < 40; i++) {
-    const gap = quranPageContent.clientHeight - quranPageContent.scrollHeight;
-    if (gap <= 2) break;
-    const next = lineHeight + 0.05;
-    quranPageContent.style.lineHeight = String(next);
-    if (quranPageContent.scrollHeight > quranPageContent.clientHeight) {
-      quranPageContent.style.lineHeight = String(lineHeight); // overshot — revert and stop
-      break;
-    }
-    lineHeight = next;
   }
 }
 
@@ -287,41 +293,87 @@ function renderSurahDividerHtml(surah) {
   return `<div class="quran-surah-divider"><span>۞</span>${escapeQuranHtml(surah.name)}<span>۞</span></div>`;
 }
 
-// Groups the page's ayahs by surah (a page very rarely spans more
-// than two) and inserts a divider — plus the Bismillah heading, for
-// every surah except Al-Fatiha (whose ayah 1 already IS the Bismillah)
-// and At-Tawbah (which traditionally has none) — whenever a surah
-// actually starts on this page.
-function buildQuranPageHtml(ayahs) {
-  let html = "";
-  let lastSurahNumber = null;
-  let paragraphOpen = false;
+// Where the mirrored 604-page dataset lives (see download-mushaf-layout.sh)
+// — one JSON file per page, e.g. mushaf-layout/page-002.json.
+const QURAN_MUSHAF_LAYOUT_BASE = "mushaf-layout";
 
-  ayahs.forEach((ayah) => {
-    if (ayah.surah.number !== lastSurahNumber) {
-      if (paragraphOpen) html += "</p>";
-      lastSurahNumber = ayah.surah.number;
-      html += renderSurahDividerHtml(ayah.surah);
-      if (ayah.numberInSurah === 1 && ayah.surah.number !== 1 && ayah.surah.number !== 9) {
-        html += `<div class="quran-bismillah">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</div>`;
-      }
-      html += `<p class="quran-page-flow">`;
-      paragraphOpen = true;
-    }
+const quranMushafPageCache = new Map();
+async function fetchMushafPageLayout(page) {
+  if (quranMushafPageCache.has(page)) return quranMushafPageCache.get(page);
+  const padded = String(page).padStart(3, "0");
+  // force-cache (unlike the "no-store" API calls elsewhere) since
+  // these are static, versioned files hosted alongside the app itself.
+  const res = await fetch(`${QURAN_MUSHAF_LAYOUT_BASE}/page-${padded}.json`, { cache: "force-cache" });
+  if (!res.ok) throw new Error("HTTP error " + res.status);
+  const data = await res.json();
+  quranMushafPageCache.set(page, data);
+  return data;
+}
 
-    const isTarget = quranHighlightAyahNumber === ayah.number;
-    const textHtml = (isTarget && quranHighlightRegex)
-      ? highlightArabicText(ayah.text, quranHighlightRegex)
-      : escapeQuranHtml(ayah.text);
+// The dataset appends the ayah's own (Arabic-Indic) number straight
+// onto the last word's text of every verse, e.g. "ٱلرَّحِيمِ ١" — this
+// pulls that back off so it can be shown as its own styled badge
+// instead of plain trailing text.
+function splitEmbeddedAyahNumber(wordText) {
+  const match = (wordText || "").match(/\s*([\u0660-\u0669]+)\s*$/);
+  if (!match) return { text: wordText || "", number: null };
+  return { text: wordText.slice(0, match.index).trimEnd(), number: match[1] };
+}
 
+function renderMushafWordHtml(word) {
+  const { text, number } = splitEmbeddedAyahNumber(word.word);
+  const [surahStr, ayahStr] = (word.location || "").split(":");
+  const surahNum = parseInt(surahStr, 10) || null;
+  const ayahNum = parseInt(ayahStr, 10) || null;
+  const isTarget = surahNum && ayahNum && quranHighlightAyahKey === `${surahNum}:${ayahNum}`;
+
+  const textHtml = (isTarget && quranHighlightRegex)
+    ? highlightArabicText(text, quranHighlightRegex)
+    : escapeQuranHtml(text);
+
+  let html = `<span class="quran-word${isTarget ? " quran-ayah-target" : ""}">${textHtml}</span>`;
+
+  // Only the ayah-ending word (the one carrying the embedded number)
+  // gets the listen button + number badge — matches the printed
+  // Mushaf's own end-of-ayah marker convention.
+  if (number && surahNum && ayahNum) {
     html +=
-      `<span class="quran-ayah${isTarget ? " quran-ayah-target" : ""}" data-ayah-number="${ayah.number}">${textHtml} ` +
-      `<button type="button" class="quran-ayah-audio-btn" data-ayah-number="${ayah.number}" aria-label="استماع">🔊</button>` +
-      `<span class="quran-ayah-num">${toArabicDigits(ayah.numberInSurah)}</span></span> `;
+      `<button type="button" class="quran-ayah-audio-btn" data-surah="${surahNum}" data-ayah="${ayahNum}" aria-label="استماع">🔊</button>` +
+      `<span class="quran-ayah-num">${number}</span>`;
+  }
+  return html;
+}
+
+// Renders the real 604-page Mushaf layout: one row per dataset line
+// (surah-header / basmala / text), matching the actual printed
+// 15-line-per-page arrangement rather than a re-flowed paragraph.
+// Vertical distribution across the full page height is handled by
+// CSS (.quran-mushaf-lines) — see fitMushafPage() for the width side.
+function buildMushafPageHtml(data) {
+  const lines = data?.lines || [];
+  let html = '<div class="quran-mushaf-lines">';
+
+  lines.forEach((line) => {
+    if (line.type === "surah-header") {
+      html += `<div class="quran-mushaf-line quran-line-header">${renderSurahDividerHtml({ name: line.text })}</div>`;
+    } else if (line.type === "basmala") {
+      html += `<div class="quran-mushaf-line quran-line-basmala"><div class="quran-bismillah">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</div></div>`;
+    } else if (line.type === "text") {
+      const wordsHtml = (line.words || []).map(renderMushafWordHtml).join("");
+      html += `<div class="quran-mushaf-line quran-line-text">${wordsHtml}</div>`;
+    }
   });
 
-  if (paragraphOpen) html += "</p>";
+  html += "</div>";
   return html;
+}
+
+// A short label describing what's on the page, for the bookmarks list.
+function computeQuranPageContextLabel(data) {
+  const header = (data?.lines || []).find((l) => l.type === "surah-header");
+  if (header) return header.text;
+  const firstText = (data?.lines || []).find((l) => l.type === "text");
+  return firstText?.verseRange || "";
 }
 
 // -------- navigation --------
@@ -331,7 +383,7 @@ async function quranGoToPage(page, options) {
   currentQuranPage = page;
   quranStopAudio();
   if (!options.preserveHighlight) {
-    quranHighlightAyahNumber = null;
+    quranHighlightAyahKey = null;
     quranHighlightRegex = null;
   }
   try { localStorage.setItem(QURAN_LAST_PAGE_KEY, String(page)); } catch (e) { /* ignore */ }
@@ -343,16 +395,17 @@ async function quranGoToPage(page, options) {
 
   quranPageContent.innerHTML = '<div class="status">جاري التحميل...</div>';
   try {
-    const ayahs = await fetchPageAyahs(page); // reused from app.js, shares its cache
-    quranCurrentPageContextLabel = ayahs[0] ? `${ayahs[0].surah.name}، آية ${toArabicDigits(ayahs[0].numberInSurah)}` : "";
-    quranPageContent.innerHTML = buildQuranPageHtml(ayahs);
+    const data = await fetchMushafPageLayout(page);
+    quranCurrentPageContextLabel = computeQuranPageContextLabel(data);
+    quranPageContent.innerHTML = buildMushafPageHtml(data);
   } catch (e) {
     quranCurrentPageContextLabel = "";
-    quranPageContent.innerHTML = '<div class="status">تعذّر تحميل الصفحة. تحقق من الاتصال وحاول مرة أخرى.</div>';
+    quranPageContent.innerHTML =
+      '<div class="status">تعذّر تحميل الصفحة. تأكد من رفع مجلد mushaf-layout بشكل صحيح، ثم حاول مرة أخرى.</div>';
   }
   resizeQuranShell(); // re-measures defensively and re-fits the text
 
-  if (quranHighlightAyahNumber) {
+  if (quranHighlightAyahKey) {
     const targetEl = quranPageContent.querySelector(".quran-ayah-target");
     // Normally the whole page is visible at once (that's the point of
     // the auto-fit sizing), so this only actually moves anything in
@@ -360,6 +413,7 @@ async function quranGoToPage(page, options) {
     if (targetEl) requestAnimationFrame(() => targetEl.scrollIntoView({ block: "center" }));
   }
 }
+
 
 quranGoPageBtn.addEventListener("click", () => quranGoToPage(quranPageInput.value));
 quranPageInput.addEventListener("keydown", (e) => {
@@ -469,7 +523,7 @@ function renderQuranSearchResults(matches, regex) {
       closeQuranModal("quranSearchModal");
 
       if (location?.page) {
-        quranHighlightAyahNumber = location.number;
+        quranHighlightAyahKey = `${location.surah}:${location.ayah}`;
         quranHighlightRegex = regex;
         await quranGoToPage(location.page, { preserveHighlight: true });
       }
@@ -562,7 +616,7 @@ function renderQuranReciterList() {
 
 // -------- per-ayah audio (tap a single ayah while reading) --------
 let quranAudioEl = null;
-let quranPlayingAyahNumber = null;
+let quranPlayingAyahKey = null; // "surah:ayah"
 
 function quranStopAudio() {
   if (quranAudioEl) {
@@ -570,13 +624,14 @@ function quranStopAudio() {
     quranAudioEl.currentTime = 0;
     quranAudioEl = null;
   }
-  quranPlayingAyahNumber = null;
+  quranPlayingAyahKey = null;
   updateQuranAudioButtons();
 }
 
 function updateQuranAudioButtons() {
   quranPageContent.querySelectorAll(".quran-ayah-audio-btn").forEach((btn) => {
-    const isPlaying = Number(btn.dataset.ayahNumber) === quranPlayingAyahNumber;
+    const key = `${btn.dataset.surah}:${btn.dataset.ayah}`;
+    const isPlaying = key === quranPlayingAyahKey;
     btn.textContent = isPlaying ? "⏸️" : "🔊";
     btn.classList.toggle("playing", isPlaying);
   });
@@ -587,19 +642,19 @@ function updateQuranAudioButtons() {
 quranPageContent.addEventListener("click", async (e) => {
   const btn = e.target.closest(".quran-ayah-audio-btn");
   if (!btn || btn.disabled) return;
-  const num = Number(btn.dataset.ayahNumber);
+  const key = `${btn.dataset.surah}:${btn.dataset.ayah}`;
 
-  if (quranPlayingAyahNumber === num) {
+  if (quranPlayingAyahKey === key) {
     quranStopAudio();
     return;
   }
   quranStopAudio();
   btn.disabled = true;
   try {
-    const url = await fetchQuranAyahAudioUrl(num, quranSelectedReciter);
+    const url = await fetchQuranAyahAudioUrl(key, quranSelectedReciter);
     if (!url) throw new Error("no audio url");
     quranAudioEl = new Audio(url);
-    quranPlayingAyahNumber = num;
+    quranPlayingAyahKey = key;
     quranAudioEl.addEventListener("ended", quranStopAudio);
     await quranAudioEl.play();
     updateQuranAudioButtons();
