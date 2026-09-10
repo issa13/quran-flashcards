@@ -1,0 +1,584 @@
+[
+    {
+        "number": 1,
+        "name": "سُورَةُ ٱلْفَاتِحَةِ",
+        "numberOfAyahs": 7,
+        "startPage": 1
+    },
+    {
+        "number": 2,
+        "name": "سورة البقرة",
+        "numberOfAyahs": 286,
+        "startPage": 2
+    },
+    {
+        "number": 3,
+        "name": "سورة آل عمران",
+        "numberOfAyahs": 200,
+        "startPage": 50
+    },
+    {
+        "number": 5,
+        "name": "سورة المائدة",
+        "numberOfAyahs": 120,
+        "startPage": 106
+    },
+    {
+        "number": 6,
+        "name": "سورة الأنعام",
+        "numberOfAyahs": 165,
+        "startPage": 128
+    },
+    {
+        "number": 7,
+        "name": "سورة الأعراف",
+        "numberOfAyahs": 206,
+        "startPage": 151
+    },
+    {
+        "number": 8,
+        "name": "سورة الأنفال",
+        "numberOfAyahs": 75,
+        "startPage": 177
+    },
+    {
+        "number": 9,
+        "name": "سورة التوبة",
+        "numberOfAyahs": 129,
+        "startPage": 187
+    },
+    {
+        "number": 11,
+        "name": "سورة هود",
+        "numberOfAyahs": 123,
+        "startPage": 221
+    },
+    {
+        "number": 12,
+        "name": "سورة يوسف",
+        "numberOfAyahs": 111,
+        "startPage": 235
+    },
+    {
+        "number": 13,
+        "name": "سورة الرعد",
+        "numberOfAyahs": 43,
+        "startPage": 249
+    },
+    {
+        "number": 14,
+        "name": "سورة ابراهيم",
+        "numberOfAyahs": 52,
+        "startPage": 255
+    },
+    {
+        "number": 15,
+        "name": "سورة الحجر",
+        "numberOfAyahs": 99,
+        "startPage": 262
+    },
+    {
+        "number": 16,
+        "name": "سورة النحل",
+        "numberOfAyahs": 128,
+        "startPage": 267
+    },
+    {
+        "number": 17,
+        "name": "سورة الإسراء",
+        "numberOfAyahs": 111,
+        "startPage": 282
+    },
+    {
+        "number": 18,
+        "name": "سورة الكهف",
+        "numberOfAyahs": 110,
+        "startPage": 293
+    },
+    {
+        "number": 19,
+        "name": "سورة مريم",
+        "numberOfAyahs": 98,
+        "startPage": 305
+    },
+    {
+        "number": 20,
+        "name": "سورة طه",
+        "numberOfAyahs": 135,
+        "startPage": 312
+    },
+    {
+        "number": 21,
+        "name": "سورة الأنبياء",
+        "numberOfAyahs": 112,
+        "startPage": 322
+    },
+    {
+        "number": 22,
+        "name": "سورة الحج",
+        "numberOfAyahs": 78,
+        "startPage": 341
+    },
+    {
+        "number": 23,
+        "name": "سورة المؤمنون",
+        "numberOfAyahs": 118,
+        "startPage": 349
+    },
+    {
+        "number": 25,
+        "name": "سورة الفرقان",
+        "numberOfAyahs": 77,
+        "startPage": 359
+    },
+    {
+        "number": 26,
+        "name": "سورة الشعراء",
+        "numberOfAyahs": 227,
+        "startPage": 376
+    },
+    {
+        "number": 28,
+        "name": "سورة القصص",
+        "numberOfAyahs": 88,
+        "startPage": 385
+    },
+    {
+        "number": 29,
+        "name": "سورة العنكبوت",
+        "numberOfAyahs": 69,
+        "startPage": 396
+    },
+    {
+        "number": 30,
+        "name": "سورة الروم",
+        "numberOfAyahs": 60,
+        "startPage": 404
+    },
+    {
+        "number": 31,
+        "name": "سورة لقمان",
+        "numberOfAyahs": 34,
+        "startPage": 411
+    },
+    {
+        "number": 32,
+        "name": "سورة السجدة",
+        "numberOfAyahs": 30,
+        "startPage": 417
+    },
+    {
+        "number": 34,
+        "name": "سورة سَبَأ",
+        "numberOfAyahs": 54,
+        "startPage": 428
+    },
+    {
+        "number": 35,
+        "name": "سورة فاطر",
+        "numberOfAyahs": 45,
+        "startPage": 434
+    },
+    {
+        "number": 36,
+        "name": "سورة يس",
+        "numberOfAyahs": 83,
+        "startPage": 440
+    },
+    {
+        "number": 37,
+        "name": "سورة الصافات",
+        "numberOfAyahs": 182,
+        "startPage": 452
+    },
+    {
+        "number": 39,
+        "name": "سورة الزمر",
+        "numberOfAyahs": 75,
+        "startPage": 458
+    },
+    {
+        "number": 40,
+        "name": "سورة غافر",
+        "numberOfAyahs": 85,
+        "startPage": 467
+    },
+    {
+        "number": 41,
+        "name": "سورة فصلت",
+        "numberOfAyahs": 54,
+        "startPage": 477
+    },
+    {
+        "number": 42,
+        "name": "سورة الشورى",
+        "numberOfAyahs": 53,
+        "startPage": 483
+    },
+    {
+        "number": 43,
+        "name": "سورة الزخرف",
+        "numberOfAyahs": 89,
+        "startPage": 489
+    },
+    {
+        "number": 44,
+        "name": "سورة الدخان",
+        "numberOfAyahs": 59,
+        "startPage": 496
+    },
+    {
+        "number": 46,
+        "name": "سورة الأحقاف",
+        "numberOfAyahs": 35,
+        "startPage": 502
+    },
+    {
+        "number": 48,
+        "name": "سورة الفتح",
+        "numberOfAyahs": 29,
+        "startPage": 511
+    },
+    {
+        "number": 49,
+        "name": "سورة الحجرات",
+        "numberOfAyahs": 18,
+        "startPage": 515
+    },
+    {
+        "number": 50,
+        "name": "سورة ق",
+        "numberOfAyahs": 45,
+        "startPage": 518
+    },
+    {
+        "number": 51,
+        "name": "سورة الذاريات",
+        "numberOfAyahs": 60,
+        "startPage": 520
+    },
+    {
+        "number": 52,
+        "name": "سورة الطور",
+        "numberOfAyahs": 49,
+        "startPage": 523
+    },
+    {
+        "number": 54,
+        "name": "سورة القمر",
+        "numberOfAyahs": 55,
+        "startPage": 528
+    },
+    {
+        "number": 55,
+        "name": "سورة الرحمن",
+        "numberOfAyahs": 78,
+        "startPage": 531
+    },
+    {
+        "number": 56,
+        "name": "سورة الواقعة",
+        "numberOfAyahs": 96,
+        "startPage": 534
+    },
+    {
+        "number": 57,
+        "name": "سورة الحديد",
+        "numberOfAyahs": 29,
+        "startPage": 537
+    },
+    {
+        "number": 58,
+        "name": "سورة المجادلة",
+        "numberOfAyahs": 22,
+        "startPage": 542
+    },
+    {
+        "number": 59,
+        "name": "سورة الحشر",
+        "numberOfAyahs": 24,
+        "startPage": 545
+    },
+    {
+        "number": 61,
+        "name": "سورة الصف",
+        "numberOfAyahs": 14,
+        "startPage": 551
+    },
+    {
+        "number": 62,
+        "name": "سورة الجمعة",
+        "numberOfAyahs": 11,
+        "startPage": 553
+    },
+    {
+        "number": 63,
+        "name": "سورة المنافقون",
+        "numberOfAyahs": 11,
+        "startPage": 554
+    },
+    {
+        "number": 64,
+        "name": "سورة التغابن",
+        "numberOfAyahs": 18,
+        "startPage": 557
+    },
+    {
+        "number": 66,
+        "name": "سورة التحريم",
+        "numberOfAyahs": 12,
+        "startPage": 560
+    },
+    {
+        "number": 67,
+        "name": "سورة الملك",
+        "numberOfAyahs": 30,
+        "startPage": 562
+    },
+    {
+        "number": 68,
+        "name": "سورة القلم",
+        "numberOfAyahs": 52,
+        "startPage": 564
+    },
+    {
+        "number": 69,
+        "name": "سورة الحاقة",
+        "numberOfAyahs": 52,
+        "startPage": 566
+    },
+    {
+        "number": 70,
+        "name": "سورة المعارج",
+        "numberOfAyahs": 44,
+        "startPage": 568
+    },
+    {
+        "number": 71,
+        "name": "سورة نوح",
+        "numberOfAyahs": 28,
+        "startPage": 570
+    },
+    {
+        "number": 72,
+        "name": "سورة الجن",
+        "numberOfAyahs": 28,
+        "startPage": 572
+    },
+    {
+        "number": 73,
+        "name": "سورة المزمل",
+        "numberOfAyahs": 20,
+        "startPage": 574
+    },
+    {
+        "number": 74,
+        "name": "سورة المدثر",
+        "numberOfAyahs": 56,
+        "startPage": 575
+    },
+    {
+        "number": 75,
+        "name": "سورة القيامة",
+        "numberOfAyahs": 40,
+        "startPage": 577
+    },
+    {
+        "number": 76,
+        "name": "سورة الانسان",
+        "numberOfAyahs": 31,
+        "startPage": 578
+    },
+    {
+        "number": 77,
+        "name": "سورة المرسلات",
+        "numberOfAyahs": 50,
+        "startPage": 580
+    },
+    {
+        "number": 78,
+        "name": "سورة النبأ",
+        "numberOfAyahs": 40,
+        "startPage": 582
+    },
+    {
+        "number": 79,
+        "name": "سورة النازعات",
+        "numberOfAyahs": 46,
+        "startPage": 583
+    },
+    {
+        "number": 83,
+        "name": "سورة المطففين",
+        "numberOfAyahs": 36,
+        "startPage": 587
+    },
+    {
+        "number": 84,
+        "name": "سورة الإنشقاق",
+        "numberOfAyahs": 25,
+        "startPage": 589
+    },
+    {
+        "number": 87,
+        "name": "سورة الأعلى",
+        "numberOfAyahs": 19,
+        "startPage": 591
+    },
+    {
+        "number": 88,
+        "name": "سورة الغاشية",
+        "numberOfAyahs": 26,
+        "startPage": 592
+    },
+    {
+        "number": 89,
+        "name": "سورة الفجر",
+        "numberOfAyahs": 30,
+        "startPage": 593
+    },
+    {
+        "number": 90,
+        "name": "سورة البلد",
+        "numberOfAyahs": 20,
+        "startPage": 594
+    },
+    {
+        "number": 92,
+        "name": "سورة الليل",
+        "numberOfAyahs": 21,
+        "startPage": 595
+    },
+    {
+        "number": 93,
+        "name": "سورة الضحى",
+        "numberOfAyahs": 11,
+        "startPage": 596
+    },
+    {
+        "number": 94,
+        "name": "سورة الشرح",
+        "numberOfAyahs": 8,
+        "startPage": 596
+    },
+    {
+        "number": 95,
+        "name": "سورة التين",
+        "numberOfAyahs": 8,
+        "startPage": 597
+    },
+    {
+        "number": 96,
+        "name": "سورة العلق",
+        "numberOfAyahs": 19,
+        "startPage": 597
+    },
+    {
+        "number": 97,
+        "name": "سورة القدر",
+        "numberOfAyahs": 5,
+        "startPage": 598
+    },
+    {
+        "number": 98,
+        "name": "سورة البينة",
+        "numberOfAyahs": 8,
+        "startPage": 598
+    },
+    {
+        "number": 99,
+        "name": "سورة الزلزلة",
+        "numberOfAyahs": 8,
+        "startPage": 599
+    },
+    {
+        "number": 100,
+        "name": "سورة العاديات",
+        "numberOfAyahs": 11,
+        "startPage": 599
+    },
+    {
+        "number": 101,
+        "name": "سورة القارعة",
+        "numberOfAyahs": 11,
+        "startPage": 600
+    },
+    {
+        "number": 102,
+        "name": "سورة التكاثر",
+        "numberOfAyahs": 8,
+        "startPage": 600
+    },
+    {
+        "number": 103,
+        "name": "سورة العصر",
+        "numberOfAyahs": 3,
+        "startPage": 601
+    },
+    {
+        "number": 104,
+        "name": "سورة الهمزة",
+        "numberOfAyahs": 9,
+        "startPage": 601
+    },
+    {
+        "number": 105,
+        "name": "سورة الفيل",
+        "numberOfAyahs": 5,
+        "startPage": 601
+    },
+    {
+        "number": 106,
+        "name": "سورة قريش",
+        "numberOfAyahs": 4,
+        "startPage": 602
+    },
+    {
+        "number": 107,
+        "name": "سورة الماعون",
+        "numberOfAyahs": 7,
+        "startPage": 602
+    },
+    {
+        "number": 108,
+        "name": "سورة الكوثر",
+        "numberOfAyahs": 3,
+        "startPage": 602
+    },
+    {
+        "number": 109,
+        "name": "سورة الكافرون",
+        "numberOfAyahs": 6,
+        "startPage": 603
+    },
+    {
+        "number": 110,
+        "name": "سورة النصر",
+        "numberOfAyahs": 3,
+        "startPage": 603
+    },
+    {
+        "number": 111,
+        "name": "سورة المسد",
+        "numberOfAyahs": 5,
+        "startPage": 603
+    },
+    {
+        "number": 112,
+        "name": "سورة الإخلاص",
+        "numberOfAyahs": 4,
+        "startPage": 604
+    },
+    {
+        "number": 113,
+        "name": "سورة الفلق",
+        "numberOfAyahs": 5,
+        "startPage": 604
+    },
+    {
+        "number": 114,
+        "name": "سورة الناس",
+        "numberOfAyahs": 6,
+        "startPage": 604
+    }
+]
