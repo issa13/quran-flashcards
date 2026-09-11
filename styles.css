@@ -1813,6 +1813,7 @@ select:focus, input:focus {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  margin-bottom: 12px;
 }
 
 .quran-topbar {
