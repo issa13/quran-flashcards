@@ -230,6 +230,14 @@ body::before {
   z-index: 40;
   display: flex;
   align-items: stretch;
+  /* Center the group when everything fits; "safe" makes it fall back
+     to start-alignment instead when it would overflow, so the items
+     that don't fit stay reachable by scrolling rather than being
+     pushed off-screen by the centering itself. The plain "center"
+     line is a fallback for browsers that don't support the two-
+     keyword form — better than nothing there. */
+  justify-content: center;
+  justify-content: safe center;
   gap: 2px;
   overflow-x: auto;
   overflow-y: hidden;
@@ -1910,6 +1918,7 @@ select:focus, input:focus {
   padding-inline: 8px;
   direction: rtl;
   font-family: 'Amiri Quran', 'Amiri', serif;
+  font-weight: 600;
 }
 .quran-page-content.quran-viewport-scroll { overflow-y: auto; }
 
@@ -1944,7 +1953,11 @@ select:focus, input:focus {
    wrapping, since a dataset line MUST render as exactly one visual
    line to match the real Mushaf. justify-content: space-between
    stretches the gaps between words so the line reaches both margins,
-   mimicking the print's own edge-to-edge justified text. */
+   mimicking the print's own edge-to-edge justified text — but only
+   when the line has enough words to make that look right; a sparse
+   line gets .quran-line-compact instead (see fitMushafPage()) so it
+   doesn't turn into a couple of words stretched across the full width
+   with huge gaps between them. */
 .quran-line-text {
   display: flex;
   flex-wrap: nowrap;
@@ -1954,6 +1967,16 @@ select:focus, input:focus {
   white-space: nowrap;
   color: var(--ink);
 }
+.quran-line-text.quran-line-compact {
+  justify-content: flex-start;
+  gap: 0.4em;
+}
+/* flex-shrink:0 on every child is load-bearing, not decorative — without
+   it, words/badges are allowed to compress below their natural size,
+   which corrupts both the width-fit measurement in fitMushafPage()
+   (it can look like a line "fits" when it's actually just squeezed)
+   and the final rendering. */
+.quran-line-text > * { flex-shrink: 0; }
 .quran-word { white-space: nowrap; }
 
 .quran-surah-divider {
@@ -2029,6 +2052,10 @@ select:focus, input:focus {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
+/* .field has a global min-width:180px (see base .field rule) meant for
+   flex-wrap contexts — inside this fixed 2-column grid it just forces
+   overflow on narrow screens, so it's overridden here specifically. */
+.quran-nav-grid .field { min-width: 0; }
 
 .quran-search-results {
   margin-top: 10px;

@@ -218,6 +218,21 @@ function fitMushafPage() {
     quranPageContent.style.fontSize = fontSize + "px";
   }
 
+  // Only stretch a text line edge-to-edge (space-between) if its words
+  // already fill a reasonable share of the line's width. scrollWidth
+  // can't tell "fits with room to spare" from "fits exactly" once a
+  // line no longer overflows, so this sums each word's own real
+  // rendered width instead — a line that's genuinely sparse (e.g. the
+  // last line before a surah/juz break) gets .quran-line-compact so a
+  // couple of words don't end up stretched across the full width with
+  // huge gaps between them.
+  Array.from(quranPageContent.querySelectorAll(".quran-line-text")).forEach((el) => {
+    let naturalWidth = 0;
+    Array.from(el.children).forEach((child) => { naturalWidth += child.getBoundingClientRect().width; });
+    const fillsLine = el.clientWidth > 0 && naturalWidth / el.clientWidth >= 0.6;
+    el.classList.toggle("quran-line-compact", !fillsLine);
+  });
+
   // Even at the smallest readable size the whole block might still be
   // taller than the box on an unusually small screen — fall back to
   // an internal scroll rather than clip content.
