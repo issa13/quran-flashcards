@@ -206,6 +206,16 @@ function fitMushafPage() {
   quranPageContent.style.fontSize = fontSize + "px";
   quranPageContent.classList.remove("quran-viewport-scroll");
 
+  const textLines = () => Array.from(quranPageContent.querySelectorAll(".quran-line-text"));
+  // Reset any per-line spacing left over from a previous page/resize
+  // before measuring — otherwise old values would throw off both the
+  // width-fit loop and justifyMushafLine()'s "natural width" reading.
+  textLines().forEach((el) => {
+    el.style.columnGap = "0px";
+    el.style.letterSpacing = "0px";
+    el.style.justifyContent = "";
+  });
+
   const anyLineOverflowsWidth = () =>
     Array.from(quranPageContent.querySelectorAll(".quran-mushaf-line"))
       .some((el) => el.scrollWidth > el.clientWidth + 1);
@@ -218,26 +228,66 @@ function fitMushafPage() {
     quranPageContent.style.fontSize = fontSize + "px";
   }
 
-  // Only stretch a text line edge-to-edge (space-between) if its words
-  // already fill a reasonable share of the line's width. scrollWidth
-  // can't tell "fits with room to spare" from "fits exactly" once a
-  // line no longer overflows, so this sums each word's own real
-  // rendered width instead — a line that's genuinely sparse (e.g. the
-  // last line before a surah/juz break) gets .quran-line-compact so a
-  // couple of words don't end up stretched across the full width with
-  // huge gaps between them.
-  Array.from(quranPageContent.querySelectorAll(".quran-line-text")).forEach((el) => {
-    let naturalWidth = 0;
-    Array.from(el.children).forEach((child) => { naturalWidth += child.getBoundingClientRect().width; });
-    const fillsLine = el.clientWidth > 0 && naturalWidth / el.clientWidth >= 0.6;
-    el.classList.toggle("quran-line-compact", !fillsLine);
-  });
+  // Stretch each line to reach both margins, like justified Mushaf
+  // typesetting — but instead of dumping all the extra space into
+  // just the gaps between words (which looks absurd on a sparse
+  // line — a couple of words stretched apart with a huge gap), this
+  // spreads it across every word-gap up to a sane per-gap cap, then
+  // bleeds any remainder into subtle letter-spacing so it never looks
+  // like floating disconnected words.
+  textLines().forEach((el) => justifyMushafLine(el, fontSize));
 
   // Even at the smallest readable size the whole block might still be
   // taller than the box on an unusually small screen — fall back to
   // an internal scroll rather than clip content.
   if (quranPageContent.scrollHeight > quranPageContent.clientHeight) {
     quranPageContent.classList.add("quran-viewport-scroll");
+  }
+}
+
+// Stretches one text line to fill its full width. gap/letter-spacing
+// are reset to 0 by the caller before this reads el.scrollWidth, so
+// that's the line's true tightest natural width at the chosen font
+// size. Word-gaps absorb the stretch first (capped per-gap so two
+// words never end up looking like they floated apart), and whatever's
+// left bleeds into letter-spacing, verified against the real rendered
+// width each step rather than trusting character-count math (Arabic
+// diacritics make that math approximate at best).
+function justifyMushafLine(el, fontSize) {
+  if (el.children.length <= 1) {
+    el.style.justifyContent = "center"; // nothing to put a gap between
+    return;
+  }
+
+  const targetWidth = el.clientWidth;
+  const naturalWidth = el.scrollWidth;
+  const gapNeeded = targetWidth - naturalWidth;
+  if (gapNeeded <= 1) return; // already fills the line
+
+  const numGaps = el.children.length - 1;
+  const maxGapPx = fontSize * 1.1;
+  // Real kashida elongates letter connectors, not the gaps between
+  // every letter — capping here keeps this approximation from turning
+  // into visibly loose, harder-to-read text on very sparse lines.
+  const maxLetterSpacingPx = fontSize * 0.12;
+  const gapPx = Math.max(0, Math.min(maxGapPx, gapNeeded / numGaps));
+  el.style.columnGap = gapPx + "px";
+
+  for (let i = 0; i < 4; i++) {
+    const diff = targetWidth - el.scrollWidth;
+    if (Math.abs(diff) < 1) break;
+    const totalChars = el.textContent.replace(/\s/g, "").length || 1;
+    const current = parseFloat(el.style.letterSpacing) || 0;
+    const next = Math.max(0, Math.min(maxLetterSpacingPx, current + diff / totalChars));
+    el.style.letterSpacing = next + "px";
+    if (next === current) break; // hit the cap, no more room to give
+  }
+
+  // A genuinely very short line (a handful of words) can hit both caps
+  // and still fall short — center that leftover shortfall so it reads
+  // as a balanced short line rather than one-sided empty space.
+  if (targetWidth - el.scrollWidth > 2) {
+    el.style.justifyContent = "center";
   }
 }
 

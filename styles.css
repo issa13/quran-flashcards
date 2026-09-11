@@ -1951,26 +1951,21 @@ select:focus, input:focus {
 /* Each text line is its own nowrap flex row — fitMushafPage() shrinks
    the font until every line's natural width fits here without
    wrapping, since a dataset line MUST render as exactly one visual
-   line to match the real Mushaf. justify-content: space-between
-   stretches the gaps between words so the line reaches both margins,
-   mimicking the print's own edge-to-edge justified text — but only
-   when the line has enough words to make that look right; a sparse
-   line gets .quran-line-compact instead (see fitMushafPage()) so it
-   doesn't turn into a couple of words stretched across the full width
-   with huge gaps between them. */
+   line to match the real Mushaf. Justification (stretching each line
+   to reach both margins, mimicking the print's own edge-to-edge
+   justified text) is computed per-line in JS via justifyMushafLine()
+   — an explicit column-gap plus, if needed, subtle letter-spacing —
+   rather than a single CSS justify-content, since a sparse line needs
+   very different treatment from a full one to avoid huge gaps between
+   just a couple of words. */
 .quran-line-text {
   display: flex;
   flex-wrap: nowrap;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: baseline;
   overflow: hidden;
   white-space: nowrap;
   color: var(--ink);
-}
-.quran-line-text.quran-line-compact {
-  justify-content: center;
-  gap: 0.5em;
-  letter-spacing: 0.03em;
 }
 /* flex-shrink:0 on every child is load-bearing, not decorative — without
    it, words/badges are allowed to compress below their natural size,
