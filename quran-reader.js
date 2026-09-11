@@ -185,18 +185,18 @@ function fetchQuranAyahAudioUrl(reference, reciterId) {
 // its available WIDTH without wrapping, since each dataset line must
 // render as exactly one visual line to match the real Mushaf.
 // ============================================================
-function resizeQuranShell() {
-  const quranView = document.getElementById("view-quran");
-  if (!quranView || !quranView.classList.contains("active") || !quranShellEl) return;
-  const wrapEl = document.querySelector(".wrap");
-  if (!wrapEl) return;
+// function resizeQuranShell() {
+//   const quranView = document.getElementById("view-quran");
+//   if (!quranView || !quranView.classList.contains("active") || !quranShellEl) return;
+//   const wrapEl = document.querySelector(".wrap");
+//   if (!wrapEl) return;
 
-  const top = quranShellEl.getBoundingClientRect().top;
-  const wrapPaddingBottom = parseFloat(getComputedStyle(wrapEl).paddingBottom) || 0;
-  const available = window.innerHeight - top - wrapPaddingBottom - 8; // small safety margin
-  quranShellEl.style.height = Math.max(280, available) + "px";
-  fitMushafPage();
-}
+//   const top = quranShellEl.getBoundingClientRect().top;
+//   const wrapPaddingBottom = parseFloat(getComputedStyle(wrapEl).paddingBottom) || 0;
+//   const available = window.innerHeight - top - wrapPaddingBottom - 8; // small safety margin
+//   quranShellEl.style.height = Math.max(280, available) + "px";
+//   fitMushafPage();
+// }
 
 // function fitMushafPage() {
 //   if (!quranPageContent) return;
@@ -291,11 +291,11 @@ function justifyMushafLine(el, fontSize) {
   }
 }
 
-let quranResizeDebounce = null;
-window.addEventListener("resize", () => {
-  clearTimeout(quranResizeDebounce);
-  quranResizeDebounce = setTimeout(resizeQuranShell, 150);
-});
+// let quranResizeDebounce = null;
+// window.addEventListener("resize", () => {
+//   clearTimeout(quranResizeDebounce);
+//   quranResizeDebounce = setTimeout(resizeQuranShell, 150);
+// });
 
 // -------- entering the tab (called by switchView() in auth-ui.js) --------
 async function enterQuranTab() {
@@ -311,7 +311,7 @@ async function enterQuranTab() {
     } catch (e) { /* ignore */ }
     await quranGoToPage(startPage);
   }
-  requestAnimationFrame(resizeQuranShell);
+  // requestAnimationFrame(resizeQuranShell);
 }
 
 async function populateQuranSurahSelect() {
@@ -449,7 +449,7 @@ async function quranGoToPage(page, options) {
     quranPageContent.innerHTML =
       '<div class="status">تعذّر تحميل الصفحة. تأكد من رفع مجلد mushaf-layout بشكل صحيح، ثم حاول مرة أخرى.</div>';
   }
-  resizeQuranShell(); // re-measures defensively and re-fits the text
+  // resizeQuranShell(); // re-measures defensively and re-fits the text
 
   if (quranHighlightAyahKey) {
     const targetEl = quranPageContent.querySelector(".quran-ayah-target");
