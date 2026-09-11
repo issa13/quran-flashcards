@@ -1,12 +1,16 @@
 // Thin wrapper around the Supabase client: auth + data helpers used
-// by auth-ui.js and app.js. Falls back gracefully if config.js hasn't
-// been filled in yet (app still works fully as a guest, local-only).
+// by auth-ui.js and app.js. Falls back gracefully to guest mode if
+// config.js hasn't been filled in yet, OR if the Supabase SDK itself
+// failed to load (e.g. no internet — it's loaded from a CDN in
+// index.html) — either way, sb stays null and nothing downstream
+// should assume it's non-null without checking first.
 
 const isConfigured =
   typeof SUPABASE_URL === "string" &&
   typeof SUPABASE_ANON_KEY === "string" &&
   !SUPABASE_URL.includes("YOUR_SUPABASE") &&
-  !SUPABASE_ANON_KEY.includes("YOUR_SUPABASE");
+  !SUPABASE_ANON_KEY.includes("YOUR_SUPABASE") &&
+  typeof window.supabase !== "undefined";
 
 const sb = isConfigured
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
