@@ -4,7 +4,7 @@
    Type: Tajawal (UI) + Aref Ruqaa (calligraphic accents)
    ========================================================== */
 :root {
-  --maxw: 600px;
+  --maxw: 450px;
 
   /* ink / paper */
   --ink: #1c231f;
@@ -1873,7 +1873,7 @@ select:focus, input:focus {
 .quran-page-viewport {
   position: relative;
   flex: 1;
-  min-height: 0;
+  min-height: 750px;
   background: var(--card);
   border-radius: var(--radius-lg);
   border: 1px solid rgba(var(--gold-rgb), 0.22);
@@ -1961,7 +1961,7 @@ select:focus, input:focus {
 .quran-line-text {
   display: flex;
   flex-wrap: nowrap;
-  justify-content: flex-start;
+  justify-content: space-around;
   align-items: baseline;
   overflow: hidden;
   white-space: nowrap;
