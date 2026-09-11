@@ -1815,6 +1815,7 @@ select:focus, input:focus {
   gap: 10px;
   margin-bottom: 12px;
   min-height: 750px;
+  max-height: 900px;
 }
 
 .quran-topbar {
@@ -2002,7 +2003,7 @@ select:focus, input:focus {
 .quran-ayah-num {
   position: relative;
   display: inline-flex;
-  align-items: center;
+  align-items: end;
   justify-content: center;
   align-self: center;
   min-width: 1.6em;
