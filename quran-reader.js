@@ -185,65 +185,65 @@ function fetchQuranAyahAudioUrl(reference, reciterId) {
 // its available WIDTH without wrapping, since each dataset line must
 // render as exactly one visual line to match the real Mushaf.
 // ============================================================
-// function resizeQuranShell() {
-//   const quranView = document.getElementById("view-quran");
-//   if (!quranView || !quranView.classList.contains("active") || !quranShellEl) return;
-//   const wrapEl = document.querySelector(".wrap");
-//   if (!wrapEl) return;
+function resizeQuranShell() {
+  const quranView = document.getElementById("view-quran");
+  if (!quranView || !quranView.classList.contains("active") || !quranShellEl) return;
+  const wrapEl = document.querySelector(".wrap");
+  if (!wrapEl) return;
 
-//   const top = quranShellEl.getBoundingClientRect().top;
-//   const wrapPaddingBottom = parseFloat(getComputedStyle(wrapEl).paddingBottom) || 0;
-//   const available = window.innerHeight - top - wrapPaddingBottom - 8; // small safety margin
-//   quranShellEl.style.height = Math.max(280, available) + "px";
-//   fitMushafPage();
-// }
+  const top = quranShellEl.getBoundingClientRect().top;
+  const wrapPaddingBottom = parseFloat(getComputedStyle(wrapEl).paddingBottom) || 0;
+  const available = window.innerHeight - top - wrapPaddingBottom - 8; // small safety margin
+  quranShellEl.style.height = Math.max(280, available) + "px";
+  fitMushafPage();
+}
 
-// function fitMushafPage() {
-//   if (!quranPageContent) return;
-//   const maxFont = 24, minFont = 10;
-//   let fontSize = maxFont;
+function fitMushafPage() {
+  if (!quranPageContent) return;
+  const maxFont = 16, minFont = 16;
+  let fontSize = maxFont;
 
-//   quranPageContent.style.fontSize = fontSize + "px";
-//   quranPageContent.classList.remove("quran-viewport-scroll");
+  quranPageContent.style.fontSize = fontSize + "px";
+  quranPageContent.classList.remove("quran-viewport-scroll");
 
-//   const textLines = () => Array.from(quranPageContent.querySelectorAll(".quran-line-text"));
-//   // Reset any per-line spacing left over from a previous page/resize
-//   // before measuring — otherwise old values would throw off both the
-//   // width-fit loop and justifyMushafLine()'s "natural width" reading.
-//   textLines().forEach((el) => {
-//     el.style.columnGap = "0px";
-//     el.style.letterSpacing = "0px";
-//     el.style.justifyContent = "";
-//   });
+  const textLines = () => Array.from(quranPageContent.querySelectorAll(".quran-line-text"));
+  // Reset any per-line spacing left over from a previous page/resize
+  // before measuring — otherwise old values would throw off both the
+  // width-fit loop and justifyMushafLine()'s "natural width" reading.
+  textLines().forEach((el) => {
+    el.style.columnGap = "0px";
+    el.style.letterSpacing = "0px";
+    el.style.justifyContent = "";
+  });
 
-//   const anyLineOverflowsWidth = () =>
-//     Array.from(quranPageContent.querySelectorAll(".quran-mushaf-line"))
-//       .some((el) => el.scrollWidth > el.clientWidth + 1);
+  const anyLineOverflowsWidth = () =>
+    Array.from(quranPageContent.querySelectorAll(".quran-mushaf-line"))
+      .some((el) => el.scrollWidth > el.clientWidth + 1);
 
-//   // Shrink until every individual line fits its available width
-//   // without wrapping — a dataset "line" that wrapped into two visual
-//   // rows would break the real 15-line-per-page layout entirely.
-//   while (anyLineOverflowsWidth() && fontSize > minFont) {
-//     fontSize -= 1;
-//     quranPageContent.style.fontSize = fontSize + "px";
-//   }
+  // Shrink until every individual line fits its available width
+  // without wrapping — a dataset "line" that wrapped into two visual
+  // rows would break the real 15-line-per-page layout entirely.
+  while (anyLineOverflowsWidth() && fontSize > minFont) {
+    fontSize -= 1;
+    quranPageContent.style.fontSize = fontSize + "px";
+  }
 
-//   // Stretch each line to reach both margins, like justified Mushaf
-//   // typesetting — but instead of dumping all the extra space into
-//   // just the gaps between words (which looks absurd on a sparse
-//   // line — a couple of words stretched apart with a huge gap), this
-//   // spreads it across every word-gap up to a sane per-gap cap, then
-//   // bleeds any remainder into subtle letter-spacing so it never looks
-//   // like floating disconnected words.
-//   textLines().forEach((el) => justifyMushafLine(el, fontSize));
+  // Stretch each line to reach both margins, like justified Mushaf
+  // typesetting — but instead of dumping all the extra space into
+  // just the gaps between words (which looks absurd on a sparse
+  // line — a couple of words stretched apart with a huge gap), this
+  // spreads it across every word-gap up to a sane per-gap cap, then
+  // bleeds any remainder into subtle letter-spacing so it never looks
+  // like floating disconnected words.
+  textLines().forEach((el) => justifyMushafLine(el, fontSize));
 
-//   // Even at the smallest readable size the whole block might still be
-//   // taller than the box on an unusually small screen — fall back to
-//   // an internal scroll rather than clip content.
-//   if (quranPageContent.scrollHeight > quranPageContent.clientHeight) {
-//     quranPageContent.classList.add("quran-viewport-scroll");
-//   }
-// }
+  // Even at the smallest readable size the whole block might still be
+  // taller than the box on an unusually small screen — fall back to
+  // an internal scroll rather than clip content.
+  if (quranPageContent.scrollHeight > quranPageContent.clientHeight) {
+    quranPageContent.classList.add("quran-viewport-scroll");
+  }
+}
 
 // Stretches one text line to fill its full width. gap/letter-spacing
 // are reset to 0 by the caller before this reads el.scrollWidth, so
@@ -291,11 +291,11 @@ function justifyMushafLine(el, fontSize) {
   }
 }
 
-// let quranResizeDebounce = null;
-// window.addEventListener("resize", () => {
-//   clearTimeout(quranResizeDebounce);
-//   quranResizeDebounce = setTimeout(resizeQuranShell, 150);
-// });
+let quranResizeDebounce = null;
+window.addEventListener("resize", () => {
+  clearTimeout(quranResizeDebounce);
+  quranResizeDebounce = setTimeout(resizeQuranShell, 150);
+});
 
 // -------- entering the tab (called by switchView() in auth-ui.js) --------
 async function enterQuranTab() {
@@ -311,7 +311,7 @@ async function enterQuranTab() {
     } catch (e) { /* ignore */ }
     await quranGoToPage(startPage);
   }
-  // requestAnimationFrame(resizeQuranShell);
+  requestAnimationFrame(resizeQuranShell);
 }
 
 async function populateQuranSurahSelect() {
@@ -449,7 +449,7 @@ async function quranGoToPage(page, options) {
     quranPageContent.innerHTML =
       '<div class="status">تعذّر تحميل الصفحة. تأكد من رفع مجلد mushaf-layout بشكل صحيح، ثم حاول مرة أخرى.</div>';
   }
-  // resizeQuranShell(); // re-measures defensively and re-fits the text
+  resizeQuranShell(); // re-measures defensively and re-fits the text
 
   if (quranHighlightAyahKey) {
     const targetEl = quranPageContent.querySelector(".quran-ayah-target");
