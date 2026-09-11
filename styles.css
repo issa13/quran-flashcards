@@ -1968,8 +1968,9 @@ select:focus, input:focus {
   color: var(--ink);
 }
 .quran-line-text.quran-line-compact {
-  justify-content: flex-start;
-  gap: 0.4em;
+  justify-content: center;
+  gap: 0.5em;
+  letter-spacing: 0.03em;
 }
 /* flex-shrink:0 on every child is load-bearing, not decorative — without
    it, words/badges are allowed to compress below their natural size,
