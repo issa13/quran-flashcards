@@ -1,6 +1,3 @@
-const API_BASE = "https://api.alquran.cloud/v1/";
-const EDITION = "quran-uthmani";
-
 const QURAN_MIN_PAGE = 1;
 const QURAN_MAX_PAGE = 604;
 
@@ -306,6 +303,28 @@ let timerDurationMs = 0;
 // Caches
 const pageCache = new Map();
 let surahCatalogPromise = null;
+
+// Locally-derived Quran text index (see derive-quran-index.js and
+// download-mushaf-layout.sh) — replaces alquran.cloud entirely for
+// ayah/surah text. Loaded once and cached forever in-memory; the
+// files themselves are static and browser-cached too (force-cache).
+let quranSurahIndexPromise = null;
+function fetchLocalSurahIndex() {
+  if (quranSurahIndexPromise) return quranSurahIndexPromise;
+  quranSurahIndexPromise = fetch("quran-index/surahs.json", { cache: "force-cache" })
+    .then((res) => { if (!res.ok) throw new Error("HTTP error"); return res.json(); })
+    .catch((e) => { quranSurahIndexPromise = null; throw e; });
+  return quranSurahIndexPromise;
+}
+
+let quranAyahIndexPromise = null;
+function fetchLocalAyahIndex() {
+  if (quranAyahIndexPromise) return quranAyahIndexPromise;
+  quranAyahIndexPromise = fetch("quran-index/ayahs.json", { cache: "force-cache" })
+    .then((res) => { if (!res.ok) throw new Error("HTTP error"); return res.json(); })
+    .catch((e) => { quranAyahIndexPromise = null; throw e; });
+  return quranAyahIndexPromise;
+}
 
 function setStatus(msg) { statusEl.textContent = msg || ""; }
 
@@ -663,28 +682,39 @@ function startTimer() {
   }, 100);
 }
 
-// -------- API with cache --------
+// -------- Quran text (locally derived, see fetchLocalAyahIndex above) --------
+// Same return shape as before (ayah.text/.numberInSurah/.juz/.page/
+// .surah.number/.surah.name) so every caller — solo generation, offline
+// challenge mode, surahsInRange() — needed zero changes. The one thing
+// that changed under the hood: ayah.number now holds a "surah:ayah"
+// reference string instead of alquran.cloud's global integer, since
+// nothing actually did arithmetic on it — every caller just passes it
+// straight through to fetchAyahAudioUrl().
 async function fetchPageAyahs(page) {
   if (pageCache.has(page)) return pageCache.get(page);
 
-  const res = await fetch(`${API_BASE}page/${page}/${EDITION}`, { cache: "no-store" });
-  if (!res.ok) throw new Error("HTTP error");
-  const json = await res.json();
-  const ayahs = json?.data?.ayahs || [];
+  const allAyahs = await fetchLocalAyahIndex();
+  const juz = juzForPage(page);
+  const ayahs = allAyahs
+    .filter((a) => a.page === page)
+    .map((a) => ({
+      number: `${a.surah}:${a.ayah}`,
+      text: a.text,
+      numberInSurah: a.ayah,
+      juz,
+      page,
+      surah: { number: a.surah, name: a.surahName },
+    }));
+
   pageCache.set(page, ayahs);
   return ayahs;
 }
 
-// Fetches the full 114-surah list once (number + name), cached
-// forever — used to translate a surah-number range into real names
-// without ever hardcoding page boundaries (which would risk being
-// wrong for Quranic content).
+// Fetches the full 114-surah list once (number + name + ayah count +
+// start page), from our own derived index — cached forever.
 function fetchSurahCatalog() {
   if (surahCatalogPromise) return surahCatalogPromise;
-  surahCatalogPromise = fetch(`${API_BASE}surah`, { cache: "no-store" })
-    .then((res) => { if (!res.ok) throw new Error("HTTP error"); return res.json(); })
-    .then((json) => json?.data || [])
-    .catch((e) => { surahCatalogPromise = null; throw e; });
+  surahCatalogPromise = fetchLocalSurahIndex();
   return surahCatalogPromise;
 }
 
@@ -721,15 +751,36 @@ function getSurahName(ayah) {
 }
 
 // -------- recitation audio --------
-// Looked up on demand (only when the person taps "استماع"), via the
-// ayah's global number (1–6236) — asking the API for the URL rather
-// than guessing a CDN path keeps this correct without hardcoding
-// anything about Quranic content.
-async function fetchAyahAudioUrl(globalAyahNumber) {
-  const res = await fetch(`${API_BASE}ayah/${globalAyahNumber}/ar.alafasy`, { cache: "no-store" });
-  if (!res.ok) throw new Error("HTTP error");
-  const json = await res.json();
-  return json?.data?.audio || json?.data?.audioSecondary?.[0] || null;
+// A direct static-file URL — no API call needed. everyayah.com serves
+// every reciter's audio as plain files named {surah:03d}{ayah:03d}.mp3
+// (verified directly against their file listing). Accepts either:
+//   - a "surah:ayahInSurah" reference (solo/offline modes now use
+//     this, via fetchPageAyahs()'s ayah.number), or
+//   - a legacy global ayah number 1–6236 (duel mode still uses this,
+//     since its server-side question generation — the Edge Function —
+//     intentionally still uses alquran.cloud; see project notes on
+//     why that one wasn't migrated). Resolved to surah:ayah via our
+//     own local index, which is built in the same canonical
+//     (surah, ayah) order as the universal global numbering, so
+//     index [globalNumber - 1] is a free, exact lookup.
+async function fetchAyahAudioUrl(reference) {
+  let surah, ayah;
+  const str = String(reference);
+  if (str.includes(":")) {
+    [surah, ayah] = str.split(":").map((n) => parseInt(n, 10));
+  } else {
+    const globalNumber = parseInt(str, 10);
+    if (!globalNumber) return null;
+    const allAyahs = await fetchLocalAyahIndex();
+    const entry = allAyahs[globalNumber - 1];
+    if (!entry) return null;
+    surah = entry.surah;
+    ayah = entry.ayah;
+  }
+  if (!surah || !ayah) return null;
+  const surahPadded = String(surah).padStart(3, "0");
+  const ayahPadded = String(ayah).padStart(3, "0");
+  return `https://everyayah.com/data/Alafasy_128kbps/${surahPadded}${ayahPadded}.mp3`;
 }
 
 function stopAudio() {
@@ -854,9 +905,11 @@ function getTypeLabel(type) {
 //   "surah"  → other surah names (from surahsInRange)
 //   "pageNumber" / "juz" → other values from the same range
 //   "ayahCount" / "ayahNumber" → nearby numbers
-// `qAyahNumber` is the GLOBAL ayah number (1–6236) of whichever ayah
-// the question text (`q`) came from — used to fetch its recitation
-// audio on demand (see fetchAyahAudioUrl()).
+// `qAyahNumber` is a "surah:ayahInSurah" reference (e.g. "2:255") for
+// whichever ayah the question text (`q`) came from — used to fetch
+// its recitation audio on demand (see fetchAyahAudioUrl()). Nothing
+// ever does arithmetic on this value, only passes it through, so its
+// exact format doesn't matter beyond that fetchAyahAudioUrl() understands it.
 function pickQAFromPage(ayahs, type, page) {
   if (!ayahs || ayahs.length < 2) return null;
 

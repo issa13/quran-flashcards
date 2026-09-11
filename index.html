@@ -220,8 +220,11 @@
          smallest readable size. Everything else (search, page/surah/
          juz navigation, bookmarks, reciter choice, range listening)
          lives behind the ⋮ menu as modals, keeping this screen to just
-         the Quran itself. Works for guests too — the line-layout data
-         is local; search/audio/surah-catalog still use alquran.cloud.
+         the Quran itself. Works for guests too — page text, surah
+         info, and search all run against our own derived index (see
+         derive-quran-index.js), no alquran.cloud or any other API
+         involved; only audio remains external (direct everyayah.com
+         static files per reciter, still no API layer).
          ================================================================== -->
     <div id="view-quran" class="app-view">
       <div class="quran-shell">

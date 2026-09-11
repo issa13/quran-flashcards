@@ -4,34 +4,35 @@
 // mushaf-layout/page-XXX.json), not a re-flowed paragraph. The screen
 // itself only ever shows the page; search, page/surah/juz navigation,
 // bookmarks, reciter choice, and listen-to-a-range all live behind
-// the ⋮ menu as modals. Works for guests too, no account needed —
-// the page-layout data is local static files, and everything else
-// (search, audio, surah catalog) is the same public alquran.cloud API
-// the rest of the app already uses.
+// the ⋮ menu as modals. Works fully offline-capable for guests too —
+// page text, surah info, ayah->page lookups, and search all run
+// against our own derived index (see derive-quran-index.js), with
+// zero dependency on alquran.cloud or any other API for text. Audio
+// is the one exception (a different medium — can't be derived from
+// text), served as direct static files from everyayah.com per the
+// selected reciter, again with no API layer in between.
 //
 // Deliberately loaded AFTER app.js (see index.html) and reuses its
-// globals directly rather than re-declaring them — API_BASE, EDITION,
-// clamp(), and fetchSurahCatalog() (shares its cache) all come from
-// app.js. This mirrors how auth-ui.js and app.js already share
-// globals across script tags in this project. Audio is handled
-// locally, though (see fetchQuranAyahAudioUrl() below), since this
-// tab needs a user-selectable reciter, unlike solo/duel mode's fixed one.
+// globals directly rather than re-declaring them — clamp(),
+// fetchSurahCatalog(), and fetchLocalAyahIndex() (all share app.js's
+// own caches) come from app.js. This mirrors how auth-ui.js and
+// app.js already share globals across script tags in this project.
 
 const QURAN_LAST_PAGE_KEY = "qf_quran_last_page";
 const QURAN_BOOKMARKS_KEY = "qf_quran_bookmarks";
 const QURAN_RECITER_KEY = "qf_quran_reciter";
-// A non-diacritic Arabic edition — the Uthmani script's full tashkeel
-// makes typed search brittle, so search runs against this instead;
-// the page itself still always renders full Uthmani text as usual.
-const QURAN_SEARCH_EDITION = "quran-simple";
 
+// `id` values are kept exactly as before so nobody's saved
+// localStorage reciter preference resets; `folder` is the matching
+// everyayah.com directory name (verified directly against their file
+// listing), used by fetchQuranAyahAudioUrl() below.
 const QURAN_RECITERS = [
-  { id: "ar.alafasy", name: "مشاري راشد العفاسي" },
-  { id: "ar.abdulbasitmurattal", name: "عبد الباسط عبد الصمد (مرتل)" },
-  { id: "ar.husary", name: "محمود خليل الحصري" },
-  { id: "ar.minshawi", name: "محمد صديق المنشاوي (مرتل)" },
-  { id: "ar.abdurrahmaansudais", name: "عبد الرحمن السديس" },
-  { id: "ar.mahermuaiqly", name: "ماهر المعيقلي" },
+  { id: "ar.alafasy", name: "مشاري راشد العفاسي", folder: "Alafasy_128kbps" },
+  { id: "ar.abdulbasitmurattal", name: "عبد الباسط عبد الصمد (مرتل)", folder: "Abdul_Basit_Murattal_192kbps" },
+  { id: "ar.husary", name: "محمود خليل الحصري", folder: "Husary_128kbps" },
+  { id: "ar.minshawi", name: "محمد صديق المنشاوي (مرتل)", folder: "Minshawy_Murattal_128kbps" },
+  { id: "ar.abdurrahmaansudais", name: "عبد الرحمن السديس", folder: "Abdurrahmaan_As-Sudais_192kbps" },
+  { id: "ar.mahermuaiqly", name: "ماهر المعيقلي", folder: "MaherAlMuaiqly128kbps" },
 ];
 
 // -------- DOM --------
@@ -153,44 +154,24 @@ function highlightArabicText(text, regex) {
 // specific ayah via the ayah-by-reference endpoint — deliberately NOT
 // trusting the search API's own "page"/"number" fields for navigation,
 // since they don't always line up with the actual result.
-// Resolves the true page for a specific ayah via the ayah-by-reference
-// endpoint (still needed even with the mirrored line-layout dataset,
-// since that dataset is organized by page, not searchable by surah)
-// — also returns the authoritative surah/ayah numbers, since the
-// search API's own fields aren't always reliable for navigation.
-async function resolveAyahLocation(surahNumber, ayahInSurah, fallbackGlobalNumber) {
-  const reference = (surahNumber && ayahInSurah) ? `${surahNumber}:${ayahInSurah}` : fallbackGlobalNumber;
-  if (!reference) return null;
-  try {
-    const res = await fetch(`${API_BASE}ayah/${reference}/${EDITION}`, { cache: "no-store" });
-    if (!res.ok) throw new Error("HTTP error");
-    const json = await res.json();
-    if (!json?.data) return null;
-    return {
-      page: json.data.page || null,
-      surah: json.data.surah?.number || surahNumber || null,
-      ayah: json.data.numberInSurah || ayahInSurah || null,
-    };
-  } catch (e) {
-    return null;
-  }
-}
-
-// "surah:ayah" string — the mirrored line-layout dataset identifies
-// ayahs this way (via each word's own location), not by a global
+// "surah:ayah" string — our local ayah index (and the mirrored
+// line-layout dataset) identifies ayahs this way, not by a global
 // ayah number, so highlighting keys off the same thing.
 let quranHighlightAyahKey = null;
 let quranHighlightRegex = null;
 
-// Local audio lookup (as opposed to app.js's fetchAyahAudioUrl, which
-// is fixed to one reciter for solo/duel mode) — accepts either a
-// global ayah number or a "surah:ayahInSurah" reference, both valid
-// per alquran.cloud, and an edition id for the currently chosen reciter.
-async function fetchQuranAyahAudioUrl(reference, edition) {
-  const res = await fetch(`${API_BASE}ayah/${reference}/${edition}`, { cache: "no-store" });
-  if (!res.ok) throw new Error("HTTP error");
-  const json = await res.json();
-  return json?.data?.audio || json?.data?.audioSecondary?.[0] || null;
+// A direct static-file URL — no API call needed. everyayah.com serves
+// every reciter's audio as plain files named {surah:03d}{ayah:03d}.mp3
+// (verified directly against their file listing). `reference` is a
+// "surah:ayahInSurah" string; `reciterId` maps to a folder via
+// QURAN_RECITERS below.
+function fetchQuranAyahAudioUrl(reference, reciterId) {
+  const parts = String(reference).split(":").map((n) => parseInt(n, 10));
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  const reciter = QURAN_RECITERS.find((r) => r.id === reciterId) || QURAN_RECITERS[0];
+  const surahPadded = String(parts[0]).padStart(3, "0");
+  const ayahPadded = String(parts[1]).padStart(3, "0");
+  return `https://everyayah.com/data/${reciter.folder}/${surahPadded}${ayahPadded}.mp3`;
 }
 
 // ============================================================
@@ -430,22 +411,13 @@ quranJuzSelect.addEventListener("change", () => {
   if (page) { closeQuranModal("quranGoToModal"); quranGoToPage(page); }
 });
 
-// Resolved via the API (ayah-by-reference "surah:1") rather than a
-// hardcoded page table — one light request per surah, cached after
-// first use, and can't drift out of sync with the actual mushaf data.
-const quranSurahStartPageCache = new Map();
+// fetchSurahCatalog() (reused from app.js) is backed by our own
+// derived index now, which already carries each surah's startPage —
+// no API call needed, and it's already cached by that function itself.
 async function resolveSurahStartPage(surahNumber) {
-  if (quranSurahStartPageCache.has(surahNumber)) return quranSurahStartPageCache.get(surahNumber);
-  try {
-    const res = await fetch(`${API_BASE}ayah/${surahNumber}:1/${EDITION}`, { cache: "no-store" });
-    if (!res.ok) throw new Error("HTTP error");
-    const json = await res.json();
-    const page = json?.data?.page || null;
-    if (page) quranSurahStartPageCache.set(surahNumber, page);
-    return page;
-  } catch (e) {
-    return null;
-  }
+  const catalog = await fetchSurahCatalog();
+  const entry = catalog.find((s) => s.number === surahNumber);
+  return entry ? entry.startPage : null;
 }
 
 function setQuranStatus(msg) {
@@ -475,6 +447,11 @@ quranSearchInput.addEventListener("input", () => {
   quranSearchDebounceTimer = setTimeout(() => runQuranSearch(q), 500);
 });
 
+// Fully local now — scans our own derived ayah index (the same data
+// backing fetchPageAyahs() in app.js) instead of calling any search
+// API. Since we generated this data ourselves, its page/surah/ayah
+// fields are already trustworthy — no separate "verify via a second
+// lookup" step is needed the way the old API-backed version required.
 async function runQuranSearch(keyword) {
   const cleaned = stripArabicDiacritics(keyword).trim();
   if (!cleaned) {
@@ -482,52 +459,49 @@ async function runQuranSearch(keyword) {
     return;
   }
   const regex = buildArabicHighlightRegex(keyword);
+  if (!regex) {
+    quranSearchResults.innerHTML = "";
+    return;
+  }
   quranSearchResults.innerHTML = '<div class="status">جاري البحث...</div>';
   try {
-    const res = await fetch(`${API_BASE}search/${encodeURIComponent(cleaned)}/all/${QURAN_SEARCH_EDITION}`, { cache: "no-store" });
-    if (!res.ok) throw new Error("HTTP error");
-    const json = await res.json();
-    renderQuranSearchResults(json?.data?.matches || [], regex);
+    const allAyahs = await fetchLocalAyahIndex(); // reused from app.js
+    const matches = [];
+    for (const a of allAyahs) {
+      regex.lastIndex = 0;
+      if (regex.test(a.text)) {
+        matches.push(a);
+        if (matches.length >= 30) break;
+      }
+    }
+    renderQuranSearchResults(matches, regex);
   } catch (e) {
-    quranSearchResults.innerHTML = '<div class="status">تعذّر البحث. تحقق من الاتصال وحاول مرة أخرى.</div>';
+    quranSearchResults.innerHTML = '<div class="status">تعذّر تحميل فهرس البحث. تأكد من رفع مجلد quran-index بشكل صحيح.</div>';
   }
 }
 
 function renderQuranSearchResults(matches, regex) {
-  // The search API's own "matches" aren't always literal substrings
-  // (see buildArabicHighlightRegex()'s comment) — filter to the ones
-  // that genuinely contain the text before showing anything.
-  const filtered = regex ? matches.filter((m) => { regex.lastIndex = 0; return regex.test(m.text || ""); }) : matches;
-
-  if (!filtered.length) {
-    quranSearchResults.innerHTML = '<div class="status">لا توجد نتائج تحتوي على هذا النص بدقة.</div>';
+  quranSearchResults.innerHTML = "";
+  if (!matches.length) {
+    quranSearchResults.innerHTML = '<div class="status">لا توجد نتائج.</div>';
     return;
   }
 
-  quranSearchResults.innerHTML = filtered.slice(0, 30).map((m) => `
-    <div class="quran-search-result" data-surah="${m.surah?.number || ""}" data-ayah-in-surah="${m.numberInSurah || ""}" data-global="${m.number || ""}">
-      <div class="quran-search-result-loc">${escapeQuranHtml(m.surah?.name || "")} — آية ${toArabicDigits(m.numberInSurah)}</div>
-      <div class="quran-search-result-text">${highlightArabicText(m.text || "", regex)}</div>
-    </div>`).join("");
-
-  quranSearchResults.querySelectorAll(".quran-search-result").forEach((row) => {
-    row.addEventListener("click", async () => {
-      const surahNumber = parseInt(row.dataset.surah, 10) || null;
-      const ayahInSurah = parseInt(row.dataset.ayahInSurah, 10) || null;
-      const globalNumber = parseInt(row.dataset.global, 10) || null;
-
+  matches.forEach((m) => {
+    const row = document.createElement("div");
+    row.className = "quran-search-result";
+    row.innerHTML =
+      `<div class="quran-search-result-loc">${escapeQuranHtml(m.surahName || "")} — آية ${toArabicDigits(m.ayah)}</div>` +
+      `<div class="quran-search-result-text">${highlightArabicText(m.text || "", regex)}</div>`;
+    row.addEventListener("click", () => {
       quranSearchInput.value = "";
-      quranSearchResults.innerHTML = '<div class="status">جاري الانتقال...</div>';
-      const location = await resolveAyahLocation(surahNumber, ayahInSurah, globalNumber);
       quranSearchResults.innerHTML = "";
       closeQuranModal("quranSearchModal");
-
-      if (location?.page) {
-        quranHighlightAyahKey = `${location.surah}:${location.ayah}`;
-        quranHighlightRegex = regex;
-        await quranGoToPage(location.page, { preserveHighlight: true });
-      }
+      quranHighlightAyahKey = `${m.surah}:${m.ayah}`;
+      quranHighlightRegex = regex;
+      quranGoToPage(m.page, { preserveHighlight: true });
     });
+    quranSearchResults.appendChild(row);
   });
 }
 
