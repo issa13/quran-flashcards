@@ -1814,6 +1814,7 @@ select:focus, input:focus {
   flex-direction: column;
   gap: 10px;
   margin-bottom: 12px;
+  min-height: 750px;
 }
 
 .quran-topbar {
