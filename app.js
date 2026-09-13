@@ -46,6 +46,7 @@ const progressWrap = document.querySelector(".progress-wrap");
 const homeRangeChip = document.getElementById("homeRangeChip");
 const settingsToggleBtn = document.getElementById("settingsToggleBtn");
 const settingsAccordionBody = document.getElementById("settingsAccordionBody");
+const viewPageInQuranBtn = document.getElementById("viewPageInQuranBtn");
 
 const qTypeSelect = document.getElementById("qTypeSelect");
 const timerSelect = document.getElementById("timerSelect");
@@ -1144,6 +1145,7 @@ mcqChoicesEl.addEventListener("click", (e) => {
 function finishQuestion(isCorrect) {
   if (answeredThisCard) return;
   answeredThisCard = true;
+  if (currentPage != null) viewPageInQuranBtn.style.display = "block";
 
   total += 1;
   if (isCorrect) correct += 1;
@@ -1253,6 +1255,7 @@ async function generateCard() {
     // reset
     stopTimer();
     hideAudioButton();
+    viewPageInQuranBtn.style.display = "none";
     flashcard.classList.remove("audio-question");
     mcqChoicesEl.innerHTML = "";
     answeredThisCard = false;
@@ -2911,6 +2914,12 @@ mistakeReviewToggle.addEventListener("change", async () => {
   mistakeReviewHint.textContent = `عدد صفحات المراجعة: ${pages.length}. ستُزال كل صفحة تلقائيًا فور إتقانها.`;
   mistakeReviewRow.classList.add("active");
   await refreshGenerationAvailability();
+});
+
+viewPageInQuranBtn.addEventListener("click", () => {
+  if (currentPage == null) return;
+  if (typeof switchView === "function") switchView("quran");
+  if (typeof quranGoToPage === "function") quranGoToPage(currentPage);
 });
 
 // -------- settings sync (signed-in users only) --------

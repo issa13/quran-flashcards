@@ -422,6 +422,60 @@ function computeQuranPageContextLabel(data) {
   return firstText?.verseRange || "";
 }
 
+function currentPageSurahNumber() {
+  const data = quranMushafPageCache.get(currentQuranPage);
+  if (!data) return null;
+  const textLine = (data.lines || []).find((l) => l.type === "text" && l.words && l.words.length);
+  if (!textLine) return null;
+  const n = parseInt((textLine.words[0].location || "").split(":")[0], 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function quranQuizRangeForSurah(surahNumber) {
+  const startPage = await resolveSurahStartPage(surahNumber);
+  if (!startPage) return null;
+  const nextStart = surahNumber < 114 ? await resolveSurahStartPage(surahNumber + 1) : null;
+  const endPage = nextStart ? nextStart - 1 : 604;
+  return { minP: startPage, maxP: Math.max(startPage, endPage) };
+}
+
+function quranQuizRangeForJuz(juzNumber) {
+  const startPage = JUZ_START_PAGE[juzNumber - 1];
+  const nextStart = JUZ_START_PAGE[juzNumber] || 605;
+  return { minP: startPage, maxP: nextStart - 1 };
+}
+
+function quranQuizRangeAround(spread) {
+  return { minP: clamp(currentQuranPage - spread, 1, 604), maxP: clamp(currentQuranPage + spread, 1, 604) };
+}
+
+// Signed-in users: pre-fills and opens the create-session modal with
+// this range (page range is fixed per-session, so a new session is
+// the correct way to "start a quiz on this range"). Guests: sets the
+// custom range picker directly and jumps to the quiz tab.
+async function startQuizFromQuranRange(range, suggestedTitle) {
+  if (!range || range.minP > range.maxP) {
+    alert("تعذّر تحديد نطاق صالح لهذا الاختيار.");
+    return;
+  }
+  if (currentUser) {
+    openCreateSessionModal();
+    newSessionNameInput.value = suggestedTitle || "اختبار سريع";
+    newSessionRangeSelect.value = "custom";
+    newSessionCustomMin.value = range.minP;
+    newSessionCustomMax.value = range.maxP;
+    showHideNewSessionCustomRange();
+    refreshCreateSessionSubmitState();
+  } else {
+    rangeSelect.value = "custom";
+    customMinEl.value = range.minP;
+    customMaxEl.value = range.maxP;
+    showHideCustomRange();
+    await refreshQuestionTypeAvailability();
+    switchView("home");
+  }
+}
+
 // -------- navigation --------
 async function quranGoToPage(page, options) {
   options = options || {};
@@ -461,9 +515,15 @@ async function quranGoToPage(page, options) {
 }
 
 
-quranGoPageBtn.addEventListener("click", () => quranGoToPage(quranPageInput.value));
+quranGoPageBtn.addEventListener("click", () => {
+  quranGoToPage(quranPageInput.value);
+  closeQuranModal("quranGoToModal");
+});
 quranPageInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") quranGoToPage(quranPageInput.value);
+  if (e.key === "Enter") {
+    quranGoToPage(quranPageInput.value);
+    closeQuranModal("quranGoToModal");
+  }
 });
 quranPrevBtn.addEventListener("click", () => quranGoToPage(currentQuranPage - 1));
 quranNextBtn.addEventListener("click", () => quranGoToPage(currentQuranPage + 1));
@@ -895,5 +955,31 @@ quranMenuDropdown.querySelectorAll(".quran-menu-item").forEach((btn) => {
     quranMenuDropdown.style.display = "none";
     quranMenuBtn.setAttribute("aria-expanded", "false");
     openQuranModal(btn.dataset.modal);
+  });
+});
+
+quranMenuDropdown.querySelectorAll(".quran-menu-item[data-quiz-action]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    quranMenuDropdown.style.display = "none";
+    quranMenuBtn.setAttribute("aria-expanded", "false");
+    const action = btn.dataset.quizAction;
+
+    if (action === "page") {
+      await startQuizFromQuranRange({ minP: currentQuranPage, maxP: currentQuranPage }, `اختبار صفحة ${currentQuranPage}`);
+    } else if (action === "surah") {
+      const surahNum = currentPageSurahNumber();
+      if (!surahNum) { alert("تعذّر تحديد السورة الحالية."); return; }
+      const range = await quranQuizRangeForSurah(surahNum);
+      const catalog = await fetchSurahCatalog();
+      const name = catalog.find((s) => s.number === surahNum)?.name || `سورة ${surahNum}`;
+      await startQuizFromQuranRange(range, `اختبار ${name}`);
+    } else if (action === "juz") {
+      const juzNum = juzForPage(currentQuranPage);
+      await startQuizFromQuranRange(quranQuizRangeForJuz(juzNum), `اختبار الجزء ${juzNum}`);
+    } else if (action === "around5") {
+      await startQuizFromQuranRange(quranQuizRangeAround(5), `اختبار حول صفحة ${currentQuranPage}`);
+    } else if (action === "around10") {
+      await startQuizFromQuranRange(quranQuizRangeAround(10), `اختبار حول صفحة ${currentQuranPage}`);
+    }
   });
 });
