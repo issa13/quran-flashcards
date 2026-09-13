@@ -45,7 +45,7 @@
          controls (question type, timer, range) — set once, touched
          rarely — live in a collapsible "⚙️ الإعدادات" section below.
          ================================================================== -->
-    <div id="view-home" class="app-view active">
+    <div id="view-home" class="app-view">
 
       <!-- Compact header: title + score/combo, one row -->
       <div class="quiz-header-row">
@@ -227,7 +227,7 @@
          involved; only audio remains external (direct everyayah.com
          static files per reciter, still no API layer).
          ================================================================== -->
-    <div id="view-quran" class="app-view">
+    <div id="view-quran" class="app-view active">
       <div class="quran-shell">
 
         <div class="quran-topbar">
@@ -777,10 +777,10 @@
        item swaps which .app-view is shown above; there are no popups.
        ================================================================== -->
   <nav class="bottom-nav" id="bottomNav" aria-label="التنقل الرئيسي">
-    <button type="button" class="bottom-nav-btn" data-view="quran">
+    <button type="button" class="bottom-nav-btn active" data-view="quran">
       <span class="bn-icon">📖</span><span class="bn-label">القرآن</span>
     </button>
-    <button type="button" class="bottom-nav-btn active" data-view="home">
+    <button type="button" class="bottom-nav-btn" data-view="home">
       <span class="bn-icon">📝</span><span class="bn-label">اختبارات</span>
     </button>
     <button type="button" class="bottom-nav-btn" data-view="challenge">

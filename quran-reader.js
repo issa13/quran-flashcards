@@ -422,21 +422,61 @@ function computeQuranPageContextLabel(data) {
   return firstText?.verseRange || "";
 }
 
-function currentPageSurahNumber() {
-  const data = quranMushafPageCache.get(currentQuranPage);
-  if (!data) return null;
-  const textLine = (data.lines || []).find((l) => l.type === "text" && l.words && l.words.length);
+function firstWordSurahOnPage(data) {
+  const textLine = (data?.lines || []).find((l) => l.type === "text" && l.words && l.words.length);
   if (!textLine) return null;
   const n = parseInt((textLine.words[0].location || "").split(":")[0], 10);
   return Number.isFinite(n) ? n : null;
 }
 
-async function quranQuizRangeForSurah(surahNumber) {
-  const startPage = await resolveSurahStartPage(surahNumber);
-  if (!startPage) return null;
-  const nextStart = surahNumber < 114 ? await resolveSurahStartPage(surahNumber + 1) : null;
-  const endPage = nextStart ? nextStart - 1 : 604;
-  return { minP: startPage, maxP: Math.max(startPage, endPage) };
+function lastWordSurahOnPage(data) {
+  const textLines = (data?.lines || []).filter((l) => l.type === "text" && l.words && l.words.length);
+  const lastLine = textLines[textLines.length - 1];
+  if (!lastLine) return null;
+  const words = lastLine.words;
+  const n = parseInt((words[words.length - 1].location || "").split(":")[0], 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function pageContainsSurah(data, surahNumber) {
+  const first = firstWordSurahOnPage(data);
+  const last = lastWordSurahOnPage(data);
+  if (first == null || last == null) return false;
+  return first <= surahNumber && surahNumber <= last;
+}
+
+// Prefers the surah of the currently-highlighted ayah (set when the
+// page was reached via search — see quranHighlightAyahKey) since
+// that's the actual ayah the person is looking at; only falls back
+// to "whatever surah starts this page" when nothing is highlighted.
+function currentPageSurahNumber() {
+  if (quranHighlightAyahKey) {
+    const n = parseInt(quranHighlightAyahKey.split(":")[0], 10);
+    if (Number.isFinite(n)) return n;
+  }
+  return firstWordSurahOnPage(quranMushafPageCache.get(currentQuranPage));
+}
+
+// Walks outward from the current page using the LOCAL mushaf dataset
+// (never the external API) to find exactly where this surah starts
+// and ends — deterministic and doesn't depend on any network call
+// succeeding, which is what caused the range to silently balloon to
+// 1–604 before.
+async function quranQuizRangeForSurahLocal(surahNumber, anchorPage) {
+  let startPage = anchorPage;
+  let endPage = anchorPage;
+
+  while (startPage > 1) {
+    const prevData = await fetchMushafPageLayout(startPage - 1);
+    if (!pageContainsSurah(prevData, surahNumber)) break;
+    startPage -= 1;
+  }
+  while (endPage < 604) {
+    const nextData = await fetchMushafPageLayout(endPage + 1);
+    if (!pageContainsSurah(nextData, surahNumber)) break;
+    endPage += 1;
+  }
+  return { minP: startPage, maxP: endPage };
 }
 
 function quranQuizRangeForJuz(juzNumber) {
@@ -969,7 +1009,7 @@ quranMenuDropdown.querySelectorAll(".quran-menu-item[data-quiz-action]").forEach
     } else if (action === "surah") {
       const surahNum = currentPageSurahNumber();
       if (!surahNum) { alert("تعذّر تحديد السورة الحالية."); return; }
-      const range = await quranQuizRangeForSurah(surahNum);
+      const range = await quranQuizRangeForSurahLocal(surahNum, currentQuranPage);
       const catalog = await fetchSurahCatalog();
       const name = catalog.find((s) => s.number === surahNum)?.name || `سورة ${surahNum}`;
       await startQuizFromQuranRange(range, `اختبار ${name}`);
@@ -983,3 +1023,9 @@ quranMenuDropdown.querySelectorAll(".quran-menu-item[data-quiz-action]").forEach
     }
   });
 });
+
+// القرآن is now the default landing view (see index.html's initial
+// classes) — this actually initializes it the same way clicking the
+// 📖 القرآن tab would, since the HTML's static classes alone don't
+// run enterQuranTab().
+if (typeof switchView === "function") switchView("quran");
