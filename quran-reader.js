@@ -602,73 +602,154 @@ quranSurahSelect.addEventListener("change", async () => {
 
 // -------- search --------
 let quranSearchDebounceTimer = null;
+let quranSearchAllMatches = [];   // full, already surah-filtered match list for the current query
+let quranSearchRegexCurrent = null;
+let quranSearchRenderedCount = 0;
+const QURAN_SEARCH_PAGE_SIZE = 20;
+
 quranSearchInput.addEventListener("input", () => {
   clearTimeout(quranSearchDebounceTimer);
   const q = quranSearchInput.value.trim();
   if (q.length < 2) {
     quranSearchResults.innerHTML = "";
+    quranSearchResultsSummary.style.display = "none";
+    quranSearchAllMatches = [];
     return;
   }
   quranSearchDebounceTimer = setTimeout(() => runQuranSearch(q), 500);
 });
 
-// Fully local now — scans our own derived ayah index (the same data
-// backing fetchPageAyahs() in app.js) instead of calling any search
-// API. Since we generated this data ourselves, its page/surah/ayah
-// fields are already trustworthy — no separate "verify via a second
-// lookup" step is needed the way the old API-backed version required.
 async function runQuranSearch(keyword) {
   const cleaned = stripArabicDiacritics(keyword).trim();
   if (!cleaned) {
     quranSearchResults.innerHTML = "";
+    quranSearchResultsSummary.style.display = "none";
+    quranSearchAllMatches = [];
     return;
   }
   const regex = buildArabicHighlightRegex(keyword);
-  if (!regex) {
-    quranSearchResults.innerHTML = "";
-    return;
-  }
+  quranSearchResultsSummary.style.display = "none";
   quranSearchResults.innerHTML = '<div class="status">جاري البحث...</div>';
   try {
-    const allAyahs = await fetchLocalAyahIndex(); // reused from app.js
-    const matches = [];
-    for (const a of allAyahs) {
-      regex.lastIndex = 0;
-      if (regex.test(a.text)) {
-        matches.push(a);
-        if (matches.length >= 30) break;
-      }
+    const res = await fetch(`${API_BASE}search/${encodeURIComponent(cleaned)}/all/${QURAN_SEARCH_EDITION}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP error");
+    const json = await res.json();
+    const matches = json?.data?.matches || [];
+    // The search API's own "matches" aren't always literal substrings
+    // (see buildArabicHighlightRegex()'s comment) — filter to the ones
+    // that genuinely contain the text before showing anything.
+    const filtered = regex ? matches.filter((m) => { regex.lastIndex = 0; return regex.test(m.text || ""); }) : matches;
+
+    quranSearchAllMatches = filtered;
+    quranSearchRegexCurrent = regex;
+    quranSearchRenderedCount = 0;
+    quranSearchResults.innerHTML = "";
+
+    if (!filtered.length) {
+      quranSearchResultsSummary.style.display = "none";
+      quranSearchResults.innerHTML = '<div class="status">لا توجد نتائج تحتوي على هذا النص بدقة.</div>';
+      return;
     }
-    renderQuranSearchResults(matches, regex);
+
+    quranSearchResultsSummary.style.display = "block";
+    quranSearchResultsSummary.textContent = `عدد النتائج: ${toArabicDigits(filtered.length)}`;
+
+    appendNextQuranSearchResultsBatch();
   } catch (e) {
-    quranSearchResults.innerHTML = '<div class="status">تعذّر تحميل فهرس البحث. تأكد من رفع مجلد quran-index بشكل صحيح.</div>';
+    quranSearchResultsSummary.style.display = "none";
+    quranSearchResults.innerHTML = '<div class="status">تعذّر البحث. تحقق من الاتصال وحاول مرة أخرى.</div>';
   }
 }
 
-function renderQuranSearchResults(matches, regex) {
-  quranSearchResults.innerHTML = "";
-  if (!matches.length) {
-    quranSearchResults.innerHTML = '<div class="status">لا توجد نتائج.</div>';
-    return;
-  }
+// Renders the next QURAN_SEARCH_PAGE_SIZE matches starting at
+// quranSearchRenderedCount and wires up their click handlers — called
+// once right after a search, then again whenever the results list is
+// scrolled near its bottom (see the scroll listener below), so a
+// large result set loads progressively instead of being capped.
+function appendNextQuranSearchResultsBatch() {
+  const start = quranSearchRenderedCount;
+  const end = Math.min(quranSearchAllMatches.length, start + QURAN_SEARCH_PAGE_SIZE);
+  if (start >= end) return;
 
-  matches.forEach((m) => {
-    const row = document.createElement("div");
-    row.className = "quran-search-result";
-    row.innerHTML =
-      `<div class="quran-search-result-loc">${escapeQuranHtml(m.surahName || "")} — آية ${toArabicDigits(m.ayah)}</div>` +
-      `<div class="quran-search-result-text">${highlightArabicText(m.text || "", regex)}</div>`;
-    row.addEventListener("click", () => {
-      quranSearchInput.value = "";
-      quranSearchResults.innerHTML = "";
-      closeQuranModal("quranSearchModal");
-      quranHighlightAyahKey = `${m.surah}:${m.ayah}`;
-      quranHighlightRegex = regex;
-      quranGoToPage(m.page, { preserveHighlight: true });
-    });
-    quranSearchResults.appendChild(row);
+  const regex = quranSearchRegexCurrent;
+  const batch = quranSearchAllMatches.slice(start, end);
+  const html = batch.map((m, i) => {
+    const globalIdx = start + i;
+    const hasSurah = !!(m.surah && m.surah.name);
+    const headerHtml = hasSurah
+      ? `${escapeQuranHtml(m.surah.name)} — آية ${toArabicDigits(m.numberInSurah)}`
+      : '<span class="quran-search-result-loc-pending">جارٍ تحديد الموضع...</span>';
+    return `
+      <div class="quran-search-result" data-idx="${globalIdx}" data-surah="${m.surah?.number || ""}" data-ayah-in-surah="${m.numberInSurah || ""}" data-global="${m.number || ""}">
+        <div class="quran-search-result-loc">${headerHtml}</div>
+        <div class="quran-search-result-text">${highlightArabicText(m.text || "", regex)}</div>
+      </div>`;
+  }).join("");
+
+  quranSearchResults.insertAdjacentHTML("beforeend", html);
+  quranSearchRenderedCount = end;
+
+  Array.from(quranSearchResults.querySelectorAll(".quran-search-result")).slice(start).forEach((row) => {
+    wireQuranSearchResultRow(row, regex);
+  });
+
+  // Any row missing a surah name (the search API occasionally omits
+  // it) gets backfilled from the ayah-by-reference endpoint — the
+  // same source quranGoToPage() already trusts for navigation —
+  // instead of being left blank forever.
+  batch.forEach((m, i) => {
+    if (m.surah && m.surah.name) return;
+    backfillQuranSearchResultLocation(start + i, m);
   });
 }
+
+async function backfillQuranSearchResultLocation(idx, m) {
+  const location = await resolveAyahLocation(m.surah?.number || null, m.numberInSurah || null, m.number || null);
+  if (!location || !location.surah || !location.ayah) return;
+
+  const catalog = await fetchSurahCatalog().catch(() => []);
+  const surahInfo = catalog.find((s) => s.number === location.surah);
+  const row = quranSearchResults.querySelector(`.quran-search-result[data-idx="${idx}"]`);
+  if (!row) return;
+
+  row.dataset.surah = location.surah;
+  row.dataset.ayahInSurah = location.ayah;
+  const locEl = row.querySelector(".quran-search-result-loc");
+  if (locEl) {
+    locEl.textContent = `${surahInfo ? surahInfo.name : "سورة " + location.surah} — آية ${toArabicDigits(location.ayah)}`;
+  }
+}
+
+function wireQuranSearchResultRow(row, regex) {
+  row.addEventListener("click", async () => {
+    const surahNumber = parseInt(row.dataset.surah, 10) || null;
+    const ayahInSurah = parseInt(row.dataset.ayahInSurah, 10) || null;
+    const globalNumber = parseInt(row.dataset.global, 10) || null;
+
+    quranSearchInput.value = "";
+    quranSearchResults.innerHTML = '<div class="status">جاري الانتقال...</div>';
+    quranSearchResultsSummary.style.display = "none";
+    const location = await resolveAyahLocation(surahNumber, ayahInSurah, globalNumber);
+    quranSearchResults.innerHTML = "";
+    closeQuranModal("quranSearchModal");
+
+    if (location?.page) {
+      quranHighlightAyahKey = `${location.surah}:${location.ayah}`;
+      quranHighlightRegex = regex;
+      await quranGoToPage(location.page, { preserveHighlight: true });
+    }
+  });
+}
+
+// Infinite scroll: once the person scrolls within ~80px of the
+// bottom of the fixed-height, internally-scrolling results list (see
+// .quran-search-results in styles.css), load the next batch if there
+// is one left.
+quranSearchResults.addEventListener("scroll", () => {
+  if (quranSearchRenderedCount >= quranSearchAllMatches.length) return;
+  const nearBottom = quranSearchResults.scrollTop + quranSearchResults.clientHeight >= quranSearchResults.scrollHeight - 80;
+  if (nearBottom) appendNextQuranSearchResultsBatch();
+});
 
 // -------- bookmarks (multiple, named — localStorage only, guest-friendly) --------
 function loadQuranBookmarks() {
