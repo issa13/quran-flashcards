@@ -47,6 +47,7 @@ const quranPageContent = document.getElementById("quranPageContent");
 
 const quranSearchInput = document.getElementById("quranSearchInput");
 const quranSearchResults = document.getElementById("quranSearchResults");
+const quranSearchResultsSummary = document.getElementById("quranSearchResultsSummary");
 
 const quranSurahSelect = document.getElementById("quranSurahSelect");
 const quranJuzSelect = document.getElementById("quranJuzSelect");
@@ -601,8 +602,14 @@ quranSurahSelect.addEventListener("change", async () => {
 });
 
 // -------- search --------
+// Runs entirely against the local ayah index (see fetchLocalAyahIndex
+// in app.js — same data source the quiz and offline challenges use).
+// No network round-trip beyond the one-time index download, so this
+// never depends on alquran.cloud or any other API being reachable —
+// and every entry always has a surahName, so results never come back
+// with a missing surah the way the old API-backed search sometimes did.
 let quranSearchDebounceTimer = null;
-let quranSearchAllMatches = [];   // full, already surah-filtered match list for the current query
+let quranSearchAllMatches = [];   // full match list (from the local index) for the current query
 let quranSearchRegexCurrent = null;
 let quranSearchRenderedCount = 0;
 const QURAN_SEARCH_PAGE_SIZE = 20;
@@ -616,7 +623,7 @@ quranSearchInput.addEventListener("input", () => {
     quranSearchAllMatches = [];
     return;
   }
-  quranSearchDebounceTimer = setTimeout(() => runQuranSearch(q), 500);
+  quranSearchDebounceTimer = setTimeout(() => runQuranSearch(q), 300);
 });
 
 async function runQuranSearch(keyword) {
@@ -628,17 +635,16 @@ async function runQuranSearch(keyword) {
     return;
   }
   const regex = buildArabicHighlightRegex(keyword);
+  if (!regex) {
+    quranSearchResultsSummary.style.display = "none";
+    quranSearchResults.innerHTML = '<div class="status">لا توجد نتائج.</div>';
+    return;
+  }
   quranSearchResultsSummary.style.display = "none";
   quranSearchResults.innerHTML = '<div class="status">جاري البحث...</div>';
   try {
-    const res = await fetch(`${API_BASE}search/${encodeURIComponent(cleaned)}/all/${QURAN_SEARCH_EDITION}`, { cache: "no-store" });
-    if (!res.ok) throw new Error("HTTP error");
-    const json = await res.json();
-    const matches = json?.data?.matches || [];
-    // The search API's own "matches" aren't always literal substrings
-    // (see buildArabicHighlightRegex()'s comment) — filter to the ones
-    // that genuinely contain the text before showing anything.
-    const filtered = regex ? matches.filter((m) => { regex.lastIndex = 0; return regex.test(m.text || ""); }) : matches;
+    const allAyahs = await fetchLocalAyahIndex(); // from app.js — cached after the first call
+    const filtered = allAyahs.filter((a) => { regex.lastIndex = 0; return regex.test(a.text || ""); });
 
     quranSearchAllMatches = filtered;
     quranSearchRegexCurrent = regex;
@@ -647,7 +653,7 @@ async function runQuranSearch(keyword) {
 
     if (!filtered.length) {
       quranSearchResultsSummary.style.display = "none";
-      quranSearchResults.innerHTML = '<div class="status">لا توجد نتائج تحتوي على هذا النص بدقة.</div>';
+      quranSearchResults.innerHTML = '<div class="status">لا توجد نتائج تحتوي على هذا النص.</div>';
       return;
     }
 
@@ -657,7 +663,7 @@ async function runQuranSearch(keyword) {
     appendNextQuranSearchResultsBatch();
   } catch (e) {
     quranSearchResultsSummary.style.display = "none";
-    quranSearchResults.innerHTML = '<div class="status">تعذّر البحث. تحقق من الاتصال وحاول مرة أخرى.</div>';
+    quranSearchResults.innerHTML = '<div class="status">تعذّر تحميل فهرس القرآن (quran-index). تحقق من إعداد المشروع.</div>';
   }
 }
 
@@ -673,16 +679,12 @@ function appendNextQuranSearchResultsBatch() {
 
   const regex = quranSearchRegexCurrent;
   const batch = quranSearchAllMatches.slice(start, end);
-  const html = batch.map((m, i) => {
+  const html = batch.map((a, i) => {
     const globalIdx = start + i;
-    const hasSurah = !!(m.surah && m.surah.name);
-    const headerHtml = hasSurah
-      ? `${escapeQuranHtml(m.surah.name)} — آية ${toArabicDigits(m.numberInSurah)}`
-      : '<span class="quran-search-result-loc-pending">جارٍ تحديد الموضع...</span>';
     return `
-      <div class="quran-search-result" data-idx="${globalIdx}" data-surah="${m.surah?.number || ""}" data-ayah-in-surah="${m.numberInSurah || ""}" data-global="${m.number || ""}">
-        <div class="quran-search-result-loc">${headerHtml}</div>
-        <div class="quran-search-result-text">${highlightArabicText(m.text || "", regex)}</div>
+      <div class="quran-search-result" data-idx="${globalIdx}" data-surah="${a.surah}" data-ayah-in-surah="${a.ayah}" data-page="${a.page}">
+        <div class="quran-search-result-loc">${escapeQuranHtml(a.surahName)} — آية ${toArabicDigits(a.ayah)}</div>
+        <div class="quran-search-result-text">${highlightArabicText(a.text || "", regex)}</div>
       </div>`;
   }).join("");
 
@@ -692,51 +694,23 @@ function appendNextQuranSearchResultsBatch() {
   Array.from(quranSearchResults.querySelectorAll(".quran-search-result")).slice(start).forEach((row) => {
     wireQuranSearchResultRow(row, regex);
   });
-
-  // Any row missing a surah name (the search API occasionally omits
-  // it) gets backfilled from the ayah-by-reference endpoint — the
-  // same source quranGoToPage() already trusts for navigation —
-  // instead of being left blank forever.
-  batch.forEach((m, i) => {
-    if (m.surah && m.surah.name) return;
-    backfillQuranSearchResultLocation(start + i, m);
-  });
-}
-
-async function backfillQuranSearchResultLocation(idx, m) {
-  const location = await resolveAyahLocation(m.surah?.number || null, m.numberInSurah || null, m.number || null);
-  if (!location || !location.surah || !location.ayah) return;
-
-  const catalog = await fetchSurahCatalog().catch(() => []);
-  const surahInfo = catalog.find((s) => s.number === location.surah);
-  const row = quranSearchResults.querySelector(`.quran-search-result[data-idx="${idx}"]`);
-  if (!row) return;
-
-  row.dataset.surah = location.surah;
-  row.dataset.ayahInSurah = location.ayah;
-  const locEl = row.querySelector(".quran-search-result-loc");
-  if (locEl) {
-    locEl.textContent = `${surahInfo ? surahInfo.name : "سورة " + location.surah} — آية ${toArabicDigits(location.ayah)}`;
-  }
 }
 
 function wireQuranSearchResultRow(row, regex) {
-  row.addEventListener("click", async () => {
+  row.addEventListener("click", () => {
     const surahNumber = parseInt(row.dataset.surah, 10) || null;
     const ayahInSurah = parseInt(row.dataset.ayahInSurah, 10) || null;
-    const globalNumber = parseInt(row.dataset.global, 10) || null;
+    const page = parseInt(row.dataset.page, 10) || null;
 
     quranSearchInput.value = "";
-    quranSearchResults.innerHTML = '<div class="status">جاري الانتقال...</div>';
-    quranSearchResultsSummary.style.display = "none";
-    const location = await resolveAyahLocation(surahNumber, ayahInSurah, globalNumber);
     quranSearchResults.innerHTML = "";
+    quranSearchResultsSummary.style.display = "none";
     closeQuranModal("quranSearchModal");
 
-    if (location?.page) {
-      quranHighlightAyahKey = `${location.surah}:${location.ayah}`;
+    if (page && surahNumber && ayahInSurah) {
+      quranHighlightAyahKey = `${surahNumber}:${ayahInSurah}`;
       quranHighlightRegex = regex;
-      await quranGoToPage(location.page, { preserveHighlight: true });
+      quranGoToPage(page, { preserveHighlight: true });
     }
   });
 }
