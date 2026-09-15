@@ -1,7 +1,7 @@
 [
     {
         "number": 1,
-        "name": "سُورَةُ ٱلْفَاتِحَةِ",
+        "name": "سورة الفاتحة",
         "numberOfAyahs": 7,
         "startPage": 1
     },
@@ -199,7 +199,7 @@
     },
     {
         "number": 34,
-        "name": "سورة سَبَأ",
+        "name": "سورة سبأ",
         "numberOfAyahs": 54,
         "startPage": 428
     },
