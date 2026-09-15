@@ -35,6 +35,21 @@
 // page-spanning ayah ever DID show up it would still reconstruct
 // correctly rather than losing data — but validateNoPageSpans() below
 // actively checks that this in fact never happens, since it shouldn't.
+//
+// Surah boundaries and names are DELIBERATELY not read from
+// mushaf-layout's own "surah-header" lines. Spot-checking found
+// several of those headers mislabeled — e.g. page-076.json's is
+// tagged surah "003" / "سورة آل عمران" when page 76 is actually where
+// An-Nisa (4) begins — and because a prior run deduped by that
+// (wrong) number, the genuinely new surah was silently dropped
+// entirely, leaving every one of its ayahs with surahName: null. Since
+// there's no way to know how many such mislabeled headers exist
+// without checking all 604 pages by hand, this instead derives
+// everything from the per-word "location" field (e.g. "4:1"), which
+// is what actually builds the ayah text above and has shown no such
+// corruption — and pairs it with a fixed, hardcoded list of the 114
+// canonical surah names below, rather than trusting any name string
+// pulled out of mushaf-layout at all.
 
 const fs = require("fs");
 const path = require("path");
@@ -44,6 +59,35 @@ const OUT_DIR = path.join(__dirname, "quran-index");
 const TOTAL_PAGES = 604;
 const EXPECTED_SURAHS = 114;
 const EXPECTED_AYAHS = 6236;
+
+// The 114 surah names, in order — standard and unchanging, so hardcoding
+// them here removes the last dependency on mushaf-layout's own (spot-
+// checked and found unreliable) surah-header text.
+const SURAH_NAMES = [
+  "سورة الفاتحة", "سورة البقرة", "سورة آل عمران", "سورة النساء", "سورة المائدة",
+  "سورة الأنعام", "سورة الأعراف", "سورة الأنفال", "سورة التوبة", "سورة يونس",
+  "سورة هود", "سورة يوسف", "سورة الرعد", "سورة إبراهيم", "سورة الحجر",
+  "سورة النحل", "سورة الإسراء", "سورة الكهف", "سورة مريم", "سورة طه",
+  "سورة الأنبياء", "سورة الحج", "سورة المؤمنون", "سورة النور", "سورة الفرقان",
+  "سورة الشعراء", "سورة النمل", "سورة القصص", "سورة العنكبوت", "سورة الروم",
+  "سورة لقمان", "سورة السجدة", "سورة الأحزاب", "سورة سبأ", "سورة فاطر",
+  "سورة يس", "سورة الصافات", "سورة ص", "سورة الزمر", "سورة غافر",
+  "سورة فصلت", "سورة الشورى", "سورة الزخرف", "سورة الدخان", "سورة الجاثية",
+  "سورة الأحقاف", "سورة محمد", "سورة الفتح", "سورة الحجرات", "سورة ق",
+  "سورة الذاريات", "سورة الطور", "سورة النجم", "سورة القمر", "سورة الرحمن",
+  "سورة الواقعة", "سورة الحديد", "سورة المجادلة", "سورة الحشر", "سورة الممتحنة",
+  "سورة الصف", "سورة الجمعة", "سورة المنافقون", "سورة التغابن", "سورة الطلاق",
+  "سورة التحريم", "سورة الملك", "سورة القلم", "سورة الحاقة", "سورة المعارج",
+  "سورة نوح", "سورة الجن", "سورة المزمل", "سورة المدثر", "سورة القيامة",
+  "سورة الإنسان", "سورة المرسلات", "سورة النبأ", "سورة النازعات", "سورة عبس",
+  "سورة التكوير", "سورة الانفطار", "سورة المطففين", "سورة الانشقاق", "سورة البروج",
+  "سورة الطارق", "سورة الأعلى", "سورة الغاشية", "سورة الفجر", "سورة البلد",
+  "سورة الشمس", "سورة الليل", "سورة الضحى", "سورة الشرح", "سورة التين",
+  "سورة العلق", "سورة القدر", "سورة البينة", "سورة الزلزلة", "سورة العاديات",
+  "سورة القارعة", "سورة التكاثر", "سورة العصر", "سورة الهمزة", "سورة الفيل",
+  "سورة قريش", "سورة الماعون", "سورة الكوثر", "سورة الكافرون", "سورة النصر",
+  "سورة المسد", "سورة الإخلاص", "سورة الفلق", "سورة الناس",
+];
 
 function splitEmbeddedAyahNumber(wordText) {
   const match = (wordText || "").match(/\s*([\u0660-\u0669]+)\s*$/);
@@ -57,12 +101,12 @@ function main() {
     process.exit(1);
   }
 
-  const surahs = [];
-  const surahByNumber = new Map();
   const ayahs = [];
 
   // The ayah currently being assembled. Only reset by finalizeBuffer(),
-  // so it survives page boundaries on its own.
+  // so it survives page boundaries on its own. surahName is filled in
+  // later, once every surah's canonical name is known (see below) —
+  // it no longer depends on having already seen a surah-header line.
   let buffer = null; // { surah, ayah, words: [], startPage, endPage }
 
   function startBuffer(surah, ayah, page) {
@@ -71,11 +115,10 @@ function main() {
 
   function finalizeBuffer() {
     if (!buffer) return;
-    const surahInfo = surahByNumber.get(buffer.surah);
     ayahs.push({
       surah: buffer.surah,
       ayah: buffer.ayah,
-      surahName: surahInfo ? surahInfo.name : null,
+      surahName: null, // filled in below, after all surahs are known
       text: buffer.words.join(" "),
       page: buffer.startPage,
       endPage: buffer.endPage,
@@ -100,46 +143,67 @@ function main() {
     }
 
     for (const line of (data.lines || [])) {
-      if (line.type === "surah-header") {
-        const number = parseInt(line.surah, 10);
-        if (number && !surahByNumber.has(number)) {
-          const entry = { number, name: line.text, numberOfAyahs: 0, startPage: p };
-          surahByNumber.set(number, entry);
-          surahs.push(entry);
-        }
-      } else if (line.type === "text") {
-        for (const w of (line.words || [])) {
-          const loc = (w.location || "").split(":");
-          const surahNum = parseInt(loc[0], 10);
-          const ayahNum = parseInt(loc[1], 10);
-          if (!surahNum || !ayahNum) continue;
+      // "surah-header" and "basmala" lines are intentionally skipped —
+      // see the file-level comment above for why surah-header isn't
+      // trusted. "basmala" lines contribute no words to any ayah — in
+      // Al-Fatiha the opening phrase is ayah 1 itself (a real "text"
+      // line), while in every other surah it's purely decorative,
+      // matching how quran-reader.js already treats the two cases
+      // differently.
+      if (line.type !== "text") continue;
 
-          if (!buffer || buffer.surah !== surahNum || buffer.ayah !== ayahNum) {
-            // A new ayah started without the previous one closing —
-            // shouldn't normally happen, but flush defensively so
-            // data is never silently dropped.
-            if (buffer) finalizeBuffer();
-            startBuffer(surahNum, ayahNum, p);
-          }
-          buffer.endPage = p;
+      for (const w of (line.words || [])) {
+        const loc = (w.location || "").split(":");
+        const surahNum = parseInt(loc[0], 10);
+        const ayahNum = parseInt(loc[1], 10);
+        if (!surahNum || !ayahNum) continue;
 
-          const { text, hasNumber } = splitEmbeddedAyahNumber(w.word);
-          if (text) buffer.words.push(text);
-          if (hasNumber) finalizeBuffer();
+        if (!buffer || buffer.surah !== surahNum || buffer.ayah !== ayahNum) {
+          // A new ayah started without the previous one closing —
+          // shouldn't normally happen, but flush defensively so
+          // data is never silently dropped.
+          if (buffer) finalizeBuffer();
+          startBuffer(surahNum, ayahNum, p);
         }
+        buffer.endPage = p;
+
+        const { text, hasNumber } = splitEmbeddedAyahNumber(w.word);
+        if (text) buffer.words.push(text);
+        if (hasNumber) finalizeBuffer();
       }
-      // "basmala" lines contribute no words to any ayah — in Al-Fatiha
-      // the opening phrase is ayah 1 itself (a real "text" line), while
-      // in every other surah it's purely decorative, matching how
-      // quran-reader.js already treats the two cases differently.
     }
   }
 
   finalizeBuffer(); // in case the very last ayah's buffer is still open
 
+  // Surah boundaries, purely from the (reliable) per-word locations
+  // above: `ayahs` is already in strict page/line order, so the first
+  // time a surah number is seen, that ayah IS that surah's ayah 1 —
+  // no need to trust any embedded header text at all.
+  const surahByNumber = new Map();
+  const surahs = [];
+  for (const a of ayahs) {
+    if (surahByNumber.has(a.surah)) continue;
+    if (a.ayah !== 1) {
+      console.warn(`Warning: first-seen ayah for surah ${a.surah} is numbered ${a.ayah}, not 1 — check mushaf-layout around page ${a.page}.`);
+    }
+    const entry = {
+      number: a.surah,
+      name: SURAH_NAMES[a.surah - 1] || `سورة ${a.surah}`,
+      numberOfAyahs: 0,
+      startPage: a.page,
+    };
+    surahByNumber.set(a.surah, entry);
+    surahs.push(entry);
+  }
+  surahs.sort((x, y) => x.number - y.number);
+
   for (const a of ayahs) {
     const s = surahByNumber.get(a.surah);
-    if (s) s.numberOfAyahs = Math.max(s.numberOfAyahs, a.ayah);
+    if (s) {
+      s.numberOfAyahs = Math.max(s.numberOfAyahs, a.ayah);
+      a.surahName = s.name;
+    }
   }
 
   fs.mkdirSync(OUT_DIR, { recursive: true });
