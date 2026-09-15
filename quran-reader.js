@@ -348,9 +348,10 @@ const quranMushafPageCache = new Map();
 async function fetchMushafPageLayout(page) {
   if (quranMushafPageCache.has(page)) return quranMushafPageCache.get(page);
   const padded = String(page).padStart(3, "0");
-  // force-cache (unlike the "no-store" API calls elsewhere) since
-  // these are static, versioned files hosted alongside the app itself.
-  const res = await fetch(`${QURAN_MUSHAF_LAYOUT_BASE}/page-${padded}.json`, { cache: "force-cache" });
+  // The shared asset version invalidates stale page data after deployment;
+  // no-cache still allows reuse of a validated browser/server response.
+  const version = encodeURIComponent(window.QF_ASSET_VERSION || "dev");
+  const res = await fetch(`${QURAN_MUSHAF_LAYOUT_BASE}/page-${padded}.json?v=${version}`, { cache: "no-cache" });
   if (!res.ok) throw new Error("HTTP error " + res.status);
   const data = await res.json();
   quranMushafPageCache.set(page, data);

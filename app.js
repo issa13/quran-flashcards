@@ -308,11 +308,12 @@ let surahCatalogPromise = null;
 // Locally-derived Quran text index (see derive-quran-index.js and
 // download-mushaf-layout.sh) — replaces alquran.cloud entirely for
 // ayah/surah text. Loaded once and cached forever in-memory; the
-// files themselves are static and browser-cached too (force-cache).
+// shared asset version invalidates stale browser cache entries after deploys.
 let quranSurahIndexPromise = null;
 function fetchLocalSurahIndex() {
   if (quranSurahIndexPromise) return quranSurahIndexPromise;
-  quranSurahIndexPromise = fetch("quran-index/surahs.json", { cache: "force-cache" })
+  const version = encodeURIComponent(window.QF_ASSET_VERSION || "dev");
+  quranSurahIndexPromise = fetch(`quran-index/surahs.json?v=${version}`, { cache: "no-cache" })
     .then((res) => { if (!res.ok) throw new Error("HTTP error"); return res.json(); })
     .catch((e) => { quranSurahIndexPromise = null; throw e; });
   return quranSurahIndexPromise;
@@ -321,7 +322,8 @@ function fetchLocalSurahIndex() {
 let quranAyahIndexPromise = null;
 function fetchLocalAyahIndex() {
   if (quranAyahIndexPromise) return quranAyahIndexPromise;
-  quranAyahIndexPromise = fetch("quran-index/ayahs.json", { cache: "force-cache" })
+  const version = encodeURIComponent(window.QF_ASSET_VERSION || "dev");
+  quranAyahIndexPromise = fetch(`quran-index/ayahs.json?v=${version}`, { cache: "no-cache" })
     .then((res) => { if (!res.ok) throw new Error("HTTP error"); return res.json(); })
     .catch((e) => { quranAyahIndexPromise = null; throw e; });
   return quranAyahIndexPromise;
