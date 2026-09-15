@@ -56,7 +56,7 @@ need this at all.
    npm install -g supabase
    ```
 2. From this project's folder, log in and link it to your project
-   (find your project ref in **Project Settings → General**):
+   (find your project ref (Project ID) in **Project Settings → General**):
    ```bash
    supabase login
    supabase link --project-ref your-project-ref

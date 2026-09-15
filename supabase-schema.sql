@@ -1280,13 +1280,19 @@ create table if not exists public.duel_questions (
   question_type text not null,
   page int,
   q_text text,
-  q_ayah_number int,
+  q_ayah_number text, -- "surah:ayah" reference string (e.g. "2:255"), not a global int — see generate-duel-questions/index.ts
   is_audio_only boolean not null default false,
   choices text[] not null,
   correct_index int not null,
   winner_user_id uuid references auth.users(id), -- set once, atomically, by submit_duel_answer()
   unique (duel_id, question_index)
 );
+
+-- Migration for an EXISTING database (created before duels moved off
+-- alquran.cloud): run this once, then redeploy the updated Edge
+-- Function. Safe on an empty/fresh table too — a no-op if the column
+-- is already text.
+-- alter table public.duel_questions alter column q_ayah_number type text;
 
 alter table public.duel_questions enable row level security;
 -- Intentionally no select/insert/update policy for `authenticated` —
