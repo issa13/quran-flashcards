@@ -14,9 +14,16 @@ const JUZ_START_PAGE = [
 
 // Below this many valid answers, a question type is hidden from the
 // dropdown (and generation is blocked as a safety net). Applies to
-// "pageNumber", "surah", and "juz" — the three types whose whole
-// point is telling several distinct values apart.
+// "pageNumber", "surah", "juz", "first", "last", "previous", and
+// "listenNext" — types whose whole point is telling several distinct
+// values/ayahs apart.
 const MIN_MCQ_ANSWERS = 5;
+
+// "ayahNumber" needs a bit more headroom than the default above: its
+// distractors are nearby numbers within the surah's own ayah range
+// (see pickNearbyNumberDistractors), so a very short surah doesn't
+// leave enough plausible distinct numbers to ask this fairly.
+const MIN_AYAHNUMBER_ANSWERS = 6;
 
 function juzForPage(page) {
   let juz = 1;
@@ -512,9 +519,9 @@ function showSessionRangeUI(minP, maxP) {
 // -------- generation gating --------
 const ADJACENT_TYPES = new Set(["nextPageFirst", "prevPageFirst", "pageEndToNextFirst", "pageStartToPrevLast"]);
 
-function rangeTooNarrowMessage(typeLabel, count, singularUnit, pluralUnit) {
+function rangeTooNarrowMessage(typeLabel, count, singularUnit, pluralUnit, required = MIN_MCQ_ANSWERS) {
   const countText = count === 1 ? `${singularUnit} واحدة فقط` : `${count} ${pluralUnit} فقط`;
-  return `النطاق المحدد يغطي ${countText}، ويلزم ${MIN_MCQ_ANSWERS} على الأقل لإنشاء سؤال "${typeLabel}". وسّع نطاق الصفحات أو اختر نوع سؤال آخر.`;
+  return `النطاق المحدد يغطي ${countText}، ويلزم ${required} على الأقل لإنشاء سؤال "${typeLabel}". وسّع نطاق الصفحات أو اختر نوع سؤال آخر.`;
 }
 
 // Central "can we generate a question of this type, in this range,
@@ -550,6 +557,44 @@ async function checkGenerationBlock(type, minP, maxP) {
     const available = await surahsInRange(minP, maxP);
     if (available.length < MIN_MCQ_ANSWERS) {
       return rangeTooNarrowMessage("خمن السورة", available.length, "سورة", "سور");
+    }
+  }
+
+  // "first"/"last" each draw their one correct answer per page (the
+  // page's first/last ayah), so the page count IS the valid-answer count.
+  if (type === "first" || type === "last") {
+    const available = maxP - minP + 1;
+    if (available < MIN_MCQ_ANSWERS) {
+      const label = type === "first" ? "خمن الآية الأولى بالصفحة" : "خمن الآية الأخيرة بالصفحة";
+      return rangeTooNarrowMessage(label, available, "صفحة", "صفحات");
+    }
+  }
+
+  // Needs strictly MORE than MIN_MCQ_ANSWERS pages (not just >=), per
+  // the requested gating for this specific type.
+  if (type === "ayahCount") {
+    const available = maxP - minP + 1;
+    if (available <= MIN_MCQ_ANSWERS) {
+      return rangeTooNarrowMessage("خمن كم عدد آيات الصفحة", available, "صفحة", "صفحات", MIN_MCQ_ANSWERS + 1);
+    }
+  }
+
+  // "previous"/"listenNext" pick any ayah in range as the question, so
+  // the total ayah count in range is the meaningful pool size here.
+  if (type === "previous" || type === "listenNext") {
+    const available = await ayahsCountInRange(minP, maxP);
+    if (available < MIN_MCQ_ANSWERS) {
+      const label = type === "previous" ? "خمن الآية السابقة" : "استمع ثم خمن الآية التالية";
+      return rangeTooNarrowMessage(label, available, "آية", "آيات");
+    }
+  }
+
+  // Needs strictly more than MIN_AYAHNUMBER_ANSWERS ayahs in range —
+  // see the constant's own comment for why this type gets extra headroom.
+  if (type === "ayahNumber") {
+    const available = await ayahsCountInRange(minP, maxP);
+    if (available <= MIN_AYAHNUMBER_ANSWERS) {
+      return rangeTooNarrowMessage("خمن رقم الآية بالسورة", available, "آية", "آيات", MIN_AYAHNUMBER_ANSWERS + 1);
     }
   }
 
@@ -604,10 +649,13 @@ function setOptionAvailability(value, available) {
 }
 
 // Hides/disables question-type options that can't produce enough
-// valid answers in the current range (pageNumber/surah/juz need
-// MIN_MCQ_ANSWERS distinct values; the adjacent-page types need more
-// than one page). Falls back the selection to "first" if the
-// currently-chosen type just became unavailable.
+// valid answers in the current range: pageNumber/surah/juz/first/last
+// need MIN_MCQ_ANSWERS distinct values; ayahCount needs strictly more
+// than that many pages; previous/listenNext need MIN_MCQ_ANSWERS
+// ayahs in range; ayahNumber needs strictly more than
+// MIN_AYAHNUMBER_ANSWERS ayahs in range; the adjacent-page types need
+// more than one page. Falls back the selection to whichever option is
+// still available if the currently-chosen type just became unavailable.
 async function refreshQuestionTypeAvailability() {
   const range = getActiveRange();
   if (!range) {
@@ -619,21 +667,34 @@ async function refreshQuestionTypeAvailability() {
   const pageCount = maxP - minP + 1;
   const juzCount = juzsInRange(minP, maxP).length;
   let surahCount = 0;
+  let ayahCount = 0;
   try {
     surahCount = (await surahsInRange(minP, maxP)).length;
+  } catch (e) { /* leave at 0 → hides the option safely */ }
+  try {
+    ayahCount = await ayahsCountInRange(minP, maxP);
   } catch (e) { /* leave at 0 → hides the option safely */ }
 
   setOptionAvailability("pageNumber", pageCount >= MIN_MCQ_ANSWERS);
   setOptionAvailability("surah", surahCount >= MIN_MCQ_ANSWERS);
   setOptionAvailability("juz", juzCount >= MIN_MCQ_ANSWERS);
+  setOptionAvailability("first", pageCount >= MIN_MCQ_ANSWERS);
+  setOptionAvailability("last", pageCount >= MIN_MCQ_ANSWERS);
+  setOptionAvailability("ayahCount", pageCount > MIN_MCQ_ANSWERS);
+  setOptionAvailability("previous", ayahCount >= MIN_MCQ_ANSWERS);
+  setOptionAvailability("listenNext", ayahCount >= MIN_MCQ_ANSWERS);
+  setOptionAvailability("ayahNumber", ayahCount > MIN_AYAHNUMBER_ANSWERS);
 
   const multiPage = maxP > minP;
   ADJACENT_TYPES.forEach((t) => setOptionAvailability(t, multiPage));
 
   const selectedOption = qTypeSelect.querySelector(`option[value="${qTypeSelect.value}"]`);
   if (selectedOption && selectedOption.disabled) {
-    qTypeSelect.value = "first";
-    cardHelp.textContent = `النوع: ${getTypeLabel("first")} — ${getTypeDescription("first")}`;
+    const fallback = Array.from(qTypeSelect.options).find((o) => !o.disabled);
+    if (fallback) {
+      qTypeSelect.value = fallback.value;
+      cardHelp.textContent = `النوع: ${getTypeLabel(fallback.value)} — ${getTypeDescription(fallback.value)}`;
+    }
   }
 
   await refreshGenerationAvailability();
@@ -751,6 +812,22 @@ async function surahsInRange(minP, maxP) {
 function getSurahName(ayah) {
   const s = ayah?.surah || {};
   return clean(s.name) || "غير معروف";
+}
+
+// Total ayahs across every page in [minP, maxP] — a cheap, purely
+// in-memory measure (one filter over the already-loaded local index,
+// no network call) used to gate "previous", "listenNext", and
+// "ayahNumber", whose answer pools aren't a fixed per-page/per-surah
+// count the way pageNumber/surah/juz are.
+async function ayahsCountInRange(minP, maxP) {
+  try {
+    const all = await fetchLocalAyahIndex();
+    let count = 0;
+    for (const a of all) if (a.page >= minP && a.page <= maxP) count++;
+    return count;
+  } catch (e) {
+    return 0;
+  }
 }
 
 // -------- recitation audio --------
@@ -904,8 +981,12 @@ function getTypeLabel(type) {
 // Every builder returns { q, a, kind, qAyahNumber } (or null on
 // failure). `kind` tells buildChoices() which distractor strategy to
 // use:
-//   "text"   → other ayah texts (first/last/previous/adjacent types)
-//   "surah"  → other surah names (from surahsInRange)
+//   "text"     → other ayah texts (previous/listenNext/adjacent types)
+//   "firstAyah"/"lastAyah" → other ayah texts too, but specifically
+//                the first/last ayah of OTHER pages in range (see
+//                buildChoices()'s comment on why these get their own
+//                kind instead of sharing plain "text")
+//   "surah"    → other surah names (from surahsInRange)
 //   "pageNumber" / "juz" → other values from the same range
 //   "ayahCount" / "ayahNumber" → nearby numbers
 // `qAyahNumber` is a "surah:ayahInSurah" reference (e.g. "2:255") for
@@ -921,12 +1002,12 @@ function pickQAFromPage(ayahs, type, page) {
 
   if (type === "first") {
     const candidate = ayahs[randInt(1, ayahs.length - 1)];
-    return { q: clean(candidate.text), a: clean(first.text), kind: "text", qAyahNumber: candidate.number };
+    return { q: clean(candidate.text), a: clean(first.text), kind: "firstAyah", qAyahNumber: candidate.number, sourcePage: page };
   }
 
   if (type === "last") {
     const candidate = ayahs[randInt(0, ayahs.length - 2)];
-    return { q: clean(candidate.text), a: clean(last.text), kind: "text", qAyahNumber: candidate.number };
+    return { q: clean(candidate.text), a: clean(last.text), kind: "lastAyah", qAyahNumber: candidate.number, sourcePage: page };
   }
 
   if (type === "previous") {
@@ -1047,6 +1128,41 @@ async function pickTextDistractors(excludeSet, minP, maxP, count) {
   return results;
 }
 
+// Gathers the first (or last) ayah's text from OTHER pages in range —
+// used so a "first ayah of the page" / "last ayah of the page"
+// question's wrong answers are ALSO first/last ayahs of some other
+// page, not just any random verse. Without this, a plain-text
+// distractor pulled from the middle of a page tends to look visibly
+// different in style/length from a genuine page-opening or
+// page-closing ayah, handing away the answer by shape alone rather
+// than requiring the person to actually know the page.
+async function collectPositionalAyahTexts(position, minP, maxP, excludePage, excludeSet, count) {
+  const results = [];
+  const seen = new Set(excludeSet);
+
+  async function tryRange(lo, hi) {
+    const pages = [];
+    for (let p = lo; p <= hi; p++) if (p !== excludePage) pages.push(p);
+    shuffle(pages);
+    for (const p of pages) {
+      if (results.length >= count) break;
+      try {
+        const ayahs = await fetchPageAyahs(p);
+        if (!ayahs || !ayahs.length) continue;
+        const text = clean(position === "first" ? ayahs[0].text : ayahs[ayahs.length - 1].text);
+        if (text && !seen.has(text)) {
+          seen.add(text);
+          results.push(text);
+        }
+      } catch (e) { /* skip failed page fetch */ }
+    }
+  }
+
+  await tryRange(minP, maxP);
+  if (results.length < count) await tryRange(1, 604); // widen, same fallback pattern as pickTextDistractors
+  return results;
+}
+
 function pickNearbyNumberDistractors(correctNum, count, spread) {
   const pool = new Set();
   let widen = spread;
@@ -1060,6 +1176,14 @@ function pickNearbyNumberDistractors(correctNum, count, spread) {
   }
   return Array.from(pool).slice(0, count).map(String);
 }
+
+// Below this many, a "first ayah of a page" or "last ayah of a page"
+// question is considered too easy to guess by shape alone — see
+// collectPositionalAyahTexts()'s comment. MIN_MCQ_ANSWERS already
+// guarantees the RANGE has enough pages overall (checkGenerationBlock),
+// but that's a floor on total pages, not a promise about this specific
+// distractor strategy, so it's kept as its own named constant.
+const MIN_SAME_POSITION_DISTRACTORS = 3;
 
 async function buildChoices(qa, minP, maxP) {
   const correct = qa.a;
@@ -1089,6 +1213,21 @@ async function buildChoices(qa, minP, maxP) {
     distractors = pickNearbyNumberDistractors(parseInt(correct, 10), want, 4);
   } else if (qa.kind === "ayahNumber") {
     distractors = pickNearbyNumberDistractors(parseInt(correct, 10), want, 8);
+  } else if (qa.kind === "firstAyah" || qa.kind === "lastAyah") {
+    const position = qa.kind === "firstAyah" ? "first" : "last";
+    const excludeSet = new Set([qa.q, correct]);
+    // Fill as many distractor slots as possible with same-position
+    // (also first/last-of-a-page) ayahs — only the leftover slots, if
+    // any, fall back to a plain ayah from anywhere in range.
+    const positional = await collectPositionalAyahTexts(position, minP, maxP, qa.sourcePage, excludeSet, want);
+    if (positional.length < MIN_SAME_POSITION_DISTRACTORS) {
+      console.warn(`Only found ${positional.length} same-position (${position}-ayah) distractor(s) for page ${qa.sourcePage}; expected at least ${MIN_SAME_POSITION_DISTRACTORS}. Consider widening the range for this question type.`);
+    }
+    distractors = positional;
+    if (distractors.length < want) {
+      const more = await pickTextDistractors(new Set([...excludeSet, ...distractors]), minP, maxP, want - distractors.length);
+      distractors = distractors.concat(more);
+    }
   } else {
     distractors = await pickTextDistractors(new Set([qa.q, correct]), minP, maxP, want);
   }
@@ -1213,6 +1352,12 @@ function finishQuestion(isCorrect) {
 
 // -------- generate --------
 async function generateCard() {
+  // Scroll the question back into view immediately on click — without
+  // this, someone who scrolled down to read feedback/explanation on
+  // the previous question would have to manually scroll back up to
+  // see the new one every single time.
+  flashcard.scrollIntoView({ behavior: "smooth", block: "start" });
+
   try {
     const type = qTypeSelect.value;
     const label = getTypeLabel(type);
@@ -1523,6 +1668,28 @@ async function challengeTypeBlockMessage(type, minP, maxP) {
   if (type === "surah") {
     const available = await surahsInRange(minP, maxP);
     if (available.length < MIN_MCQ_ANSWERS) return rangeTooNarrowMessage("خمن السورة", available.length, "سورة", "سور");
+  }
+  if (type === "first" || type === "last") {
+    const available = maxP - minP + 1;
+    if (available < MIN_MCQ_ANSWERS) {
+      const label = type === "first" ? "خمن الآية الأولى بالصفحة" : "خمن الآية الأخيرة بالصفحة";
+      return rangeTooNarrowMessage(label, available, "صفحة", "صفحات");
+    }
+  }
+  if (type === "ayahCount") {
+    const available = maxP - minP + 1;
+    if (available <= MIN_MCQ_ANSWERS) return rangeTooNarrowMessage("خمن كم عدد آيات الصفحة", available, "صفحة", "صفحات", MIN_MCQ_ANSWERS + 1);
+  }
+  if (type === "previous" || type === "listenNext") {
+    const available = await ayahsCountInRange(minP, maxP);
+    if (available < MIN_MCQ_ANSWERS) {
+      const label = type === "previous" ? "خمن الآية السابقة" : "استمع ثم خمن الآية التالية";
+      return rangeTooNarrowMessage(label, available, "آية", "آيات");
+    }
+  }
+  if (type === "ayahNumber") {
+    const available = await ayahsCountInRange(minP, maxP);
+    if (available <= MIN_AYAHNUMBER_ANSWERS) return rangeTooNarrowMessage("خمن رقم الآية بالسورة", available, "آية", "آيات", MIN_AYAHNUMBER_ANSWERS + 1);
   }
   return null;
 }

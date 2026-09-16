@@ -7,7 +7,7 @@
   <script>
     // Change this value whenever local files are deployed so browsers fetch
     // the new HTML dependencies and Quran data instead of stale cache entries.
-    window.QF_ASSET_VERSION = "2026-09-15";
+    window.QF_ASSET_VERSION = "2026-09-16";
 
     // Applied before first paint so switching themes never flashes
     // the wrong one. auth-ui.js's toggle button reads/writes the same
@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@400;700&family=Tajawal:wght@400;500;700;900&family=Amiri+Quran&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=2026-09-15">
+  <link rel="stylesheet" href="styles.css?v=2026-09-16">
 </head>
 
 <body>
@@ -339,8 +339,11 @@
         <div class="hint" style="margin-top:10px; text-align:center;">لإنشاء جلسة جديدة، من الصفحة الرئيسية ← ⚙️ الإعدادات.</div>
       </div>
 
-      <div class="view-card" style="text-align:center;">
-        <button id="logoutBtn" class="btn small ghost">خروج</button>
+      <div id="profileLogoutSection" class="view-card" style="text-align:center;">
+        <button id="logoutBtn" class="btn small ghost">تسجيل الخروج</button>
+      </div>
+      <div id="profileLoginSection" class="view-card" style="text-align:center; display:none;">
+        <button id="profileLoginBtn" class="btn primary full">تسجيل الدخول</button>
       </div>
 
     </div>
@@ -1026,10 +1029,10 @@
 
   <!-- Supabase (only used once config.js is filled in) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-  <script src="config.js?v=2026-09-15"></script>
-  <script src="supabase-client.js?v=2026-09-15"></script>
-  <script src="auth-ui.js?v=2026-09-15"></script>
-  <script src="app.js?v=2026-09-15"></script>
-  <script src="quran-reader.js?v=2026-09-15"></script>
+  <script src="config.js"></script>
+  <script src="supabase-client.js"></script>
+  <script src="auth-ui.js"></script>
+  <script src="app.js"></script>
+  <script src="quran-reader.js"></script>
 </body>
 </html>

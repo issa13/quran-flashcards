@@ -431,22 +431,6 @@ function firstWordSurahOnPage(data) {
   return Number.isFinite(n) ? n : null;
 }
 
-function lastWordSurahOnPage(data) {
-  const textLines = (data?.lines || []).filter((l) => l.type === "text" && l.words && l.words.length);
-  const lastLine = textLines[textLines.length - 1];
-  if (!lastLine) return null;
-  const words = lastLine.words;
-  const n = parseInt((words[words.length - 1].location || "").split(":")[0], 10);
-  return Number.isFinite(n) ? n : null;
-}
-
-function pageContainsSurah(data, surahNumber) {
-  const first = firstWordSurahOnPage(data);
-  const last = lastWordSurahOnPage(data);
-  if (first == null || last == null) return false;
-  return first <= surahNumber && surahNumber <= last;
-}
-
 // Prefers the surah of the currently-highlighted ayah (set when the
 // page was reached via search — see quranHighlightAyahKey) since
 // that's the actual ayah the person is looking at; only falls back
@@ -459,26 +443,30 @@ function currentPageSurahNumber() {
   return firstWordSurahOnPage(quranMushafPageCache.get(currentQuranPage));
 }
 
-// Walks outward from the current page using the LOCAL mushaf dataset
-// (never the external API) to find exactly where this surah starts
-// and ends — deterministic and doesn't depend on any network call
-// succeeding, which is what caused the range to silently balloon to
-// 1–604 before.
-async function quranQuizRangeForSurahLocal(surahNumber, anchorPage) {
-  let startPage = anchorPage;
-  let endPage = anchorPage;
-
-  while (startPage > 1) {
-    const prevData = await fetchMushafPageLayout(startPage - 1);
-    if (!pageContainsSurah(prevData, surahNumber)) break;
-    startPage -= 1;
+// Finds exactly where a surah starts and ends using the same
+// locally-derived ayah index (quran-index/ayahs.json — see app.js's
+// fetchLocalAyahIndex) that already powers solo/offline quiz
+// generation and search. This used to walk outward from the current
+// page one mushaf-layout page at a time (fetchMushafPageLayout per
+// page) — for a large surah like Al-Baqarah (48 pages) that meant up
+// to 48 sequential network round-trips, which is exactly why it felt
+// slow the first time and fast afterwards (only once the browser's
+// own HTTP cache had warmed up for every one of those pages). This
+// instead does a single in-memory filter over the already-loaded flat
+// ayah index — instant on every run, first or not, since
+// fetchLocalAyahIndex() only ever fetches its one JSON file once and
+// reuses it from then on for the rest of the session.
+async function quranQuizRangeForSurahLocal(surahNumber) {
+  const all = await fetchLocalAyahIndex();
+  let minPage = null;
+  let maxPage = null;
+  for (const a of all) {
+    if (a.surah !== surahNumber) continue;
+    if (minPage == null || a.page < minPage) minPage = a.page;
+    if (maxPage == null || a.page > maxPage) maxPage = a.page;
   }
-  while (endPage < 604) {
-    const nextData = await fetchMushafPageLayout(endPage + 1);
-    if (!pageContainsSurah(nextData, surahNumber)) break;
-    endPage += 1;
-  }
-  return { minP: startPage, maxP: endPage };
+  if (minPage == null) return null;
+  return { minP: minPage, maxP: maxPage };
 }
 
 function quranQuizRangeForJuz(juzNumber) {
@@ -1065,7 +1053,7 @@ quranMenuDropdown.querySelectorAll(".quran-menu-item[data-quiz-action]").forEach
     } else if (action === "surah") {
       const surahNum = currentPageSurahNumber();
       if (!surahNum) { alert("تعذّر تحديد السورة الحالية."); return; }
-      const range = await quranQuizRangeForSurahLocal(surahNum, currentQuranPage);
+      const range = await quranQuizRangeForSurahLocal(surahNum);
       const catalog = await fetchSurahCatalog();
       const name = catalog.find((s) => s.number === surahNum)?.name || `سورة ${surahNum}`;
       await startQuizFromQuranRange(range, `اختبار ${name}`);

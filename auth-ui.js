@@ -45,6 +45,9 @@ const createSessionSubmitBtn = document.getElementById("createSessionSubmitBtn")
 const leaderboardBody = document.getElementById("leaderboardBody");
 
 const logoutBtn = document.getElementById("logoutBtn");
+const profileLogoutSection = document.getElementById("profileLogoutSection");
+const profileLoginSection = document.getElementById("profileLoginSection");
+const profileLoginBtn = document.getElementById("profileLoginBtn");
 
 // -------- dark mode --------
 // The inline script in index.html's <head> already applies the
@@ -145,7 +148,7 @@ function setAuthMode(mode) {
 tabLogin.addEventListener("click", () => setAuthMode("login"));
 tabSignup.addEventListener("click", () => setAuthMode("signup"));
 
-loginOpenBtn.addEventListener("click", () => {
+function openLoginModal() {
   resetAuthModalView();
   if (!isConfigured) {
     authError.textContent =
@@ -154,7 +157,10 @@ loginOpenBtn.addEventListener("click", () => {
   }
   setAuthMode("login");
   showModal(authModal);
-});
+}
+
+loginOpenBtn.addEventListener("click", openLoginModal);
+profileLoginBtn.addEventListener("click", openLoginModal);
 
 authCloseBtn.addEventListener("click", () => hideModal(authModal));
 authModal.addEventListener("click", (e) => { if (e.target === authModal) hideModal(authModal); });
@@ -374,6 +380,8 @@ onAuthChange(async (user) => {
   if (user) {
     guestActions.style.display = "none";
     userActions.style.display = "flex";
+    profileLogoutSection.style.display = "block";
+    profileLoginSection.style.display = "none";
 
     const stats = await fetchUserStats();
     updateLevelBadge(stats?.xp || 0);
@@ -385,6 +393,8 @@ onAuthChange(async (user) => {
   } else {
     guestActions.style.display = "flex";
     userActions.style.display = "none";
+    profileLogoutSection.style.display = "none";
+    profileLoginSection.style.display = "block";
     userLevelBadge.style.display = "none";
     lastKnownLevel = null;
     mySessions = [];
