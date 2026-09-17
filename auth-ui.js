@@ -29,18 +29,7 @@ const statsBody = document.getElementById("statsBody");
 const sessionChips = document.getElementById("sessionChips");
 const sessionActions = document.getElementById("sessionActions");
 const sessionPublicToggle = document.getElementById("sessionPublicToggle");
-const renameSessionBtn = document.getElementById("renameSessionBtn");
 const deleteSessionBtn = document.getElementById("deleteSessionBtn");
-
-const createSessionModal = document.getElementById("createSessionModal");
-const openCreateSessionBtn = document.getElementById("openCreateSessionBtn");
-const createSessionCloseBtn = document.getElementById("createSessionCloseBtn");
-const newSessionNameInput = document.getElementById("newSessionName");
-const newSessionRangeSelect = document.getElementById("newSessionRangeSelect");
-const newSessionCustomRangeRow = document.getElementById("newSessionCustomRangeRow");
-const newSessionCustomMin = document.getElementById("newSessionCustomMin");
-const newSessionCustomMax = document.getElementById("newSessionCustomMax");
-const createSessionSubmitBtn = document.getElementById("createSessionSubmitBtn");
 
 const leaderboardBody = document.getElementById("leaderboardBody");
 
@@ -407,70 +396,9 @@ onAuthChange(async (user) => {
 
 // -------- stats view (sessions) --------
 // Opening is handled by switchView("stats") in the bottom-nav wiring
-// above, which calls refreshSessionsAndShow(null) itself.
-
-// -------- create session modal (name + fixed page range, together) --------
-function showHideNewSessionCustomRange() {
-  newSessionCustomRangeRow.style.display = (newSessionRangeSelect.value === "custom") ? "flex" : "none";
-}
-newSessionRangeSelect.addEventListener("change", showHideNewSessionCustomRange);
-
-function refreshCreateSessionSubmitState() {
-  createSessionSubmitBtn.disabled = !newSessionNameInput.value.trim();
-}
-newSessionNameInput.addEventListener("input", refreshCreateSessionSubmitState);
-
-newSessionNameInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !createSessionSubmitBtn.disabled) createSessionSubmitBtn.click();
-});
-
-// Shared by the "+ جلسة جديدة" button and the automatic prompt shown
-// to a signed-in user with no active session at all yet (see app.js's
-// onAuthChange session-sync handler) — same modal, same defaults,
-// just two different triggers for opening it.
-function openCreateSessionModal() {
-  newSessionNameInput.value = "";
-  newSessionRangeSelect.value = "all";
-  newSessionCustomMin.value = 1;
-  newSessionCustomMax.value = 604;
-  showHideNewSessionCustomRange();
-  refreshCreateSessionSubmitState();
-  showModal(createSessionModal);
-}
-
-openCreateSessionBtn.addEventListener("click", openCreateSessionModal);
-
-createSessionCloseBtn.addEventListener("click", () => hideModal(createSessionModal));
-createSessionModal.addEventListener("click", (e) => { if (e.target === createSessionModal) hideModal(createSessionModal); });
-
-createSessionSubmitBtn.addEventListener("click", async () => {
-  const name = newSessionNameInput.value.trim();
-  if (!name) return;
-
-  const range = (typeof resolveRangeBounds === "function")
-    ? resolveRangeBounds(newSessionRangeSelect.value, newSessionCustomMin.value, newSessionCustomMax.value)
-    : { minP: 1, maxP: 604 };
-
-  createSessionSubmitBtn.disabled = true;
-  const newId = await createSession(name, range.minP, range.maxP);
-  createSessionSubmitBtn.disabled = false;
-
-  if (!newId) {
-    alert("تعذّر إنشاء الجلسة. حاول مرة أخرى.");
-    return;
-  }
-
-  // The new session becomes the one and only session new attempts
-  // are recorded against, its range is fixed from now on, and the
-  // panel score starts fresh for it.
-  if (typeof syncActiveSessionId === "function") syncActiveSessionId(newId, range.minP, range.maxP, name);
-  if (typeof resetScore === "function") resetScore();
-  if (typeof showSessionRangeUI === "function") showSessionRangeUI(range.minP, range.maxP);
-  if (typeof refreshQuestionTypeAvailability === "function") await refreshQuestionTypeAvailability();
-
-  hideModal(createSessionModal);
-  await refreshSessionsAndShow(newId);
-});
+// above, which calls refreshSessionsAndShow(null) itself. Sessions
+// are created exclusively from ⚔️ التحديات → ذاتي (see app.js) — this
+// view is read-only history + the leaderboard-visibility toggle.
 
 // Toggling a session's leaderboard visibility. Only one session per
 // user may be public at a time — turning this one on while another
@@ -489,7 +417,7 @@ sessionPublicToggle.addEventListener("change", async () => {
     const other = mySessions.find((s) => s.session_id !== selectedSessionId && s.is_public);
     if (other) {
       const ok = confirm(
-        `يمكن إضافة جلسة واحدة فقط إلى لوحة الصدارة. بإضافة هذه الجلسة ستتم إزالة "${other.title}" من لوحة الصدارة. هل تريد المتابعة؟`
+        `يمكن إضافة جلسة واحدة فقط إلى لوحة الصدارة. بإضافة هذه الجلسة ستتم إزالة الجلسة الأخرى (${pageRangeLabel(other) || "—"}) من لوحة الصدارة. هل تريد المتابعة؟`
       );
       if (!ok) {
         sessionPublicToggle.checked = false;
@@ -524,36 +452,11 @@ sessionPublicToggle.addEventListener("change", async () => {
   renderSessionChips(); // show/hide the 🏆 badge in the table immediately
 });
 
-renameSessionBtn.addEventListener("click", async () => {
-  if (!selectedSessionId) return;
-  const session = mySessions.find((s) => s.session_id === selectedSessionId);
-  const currentName = session ? session.title : "";
-
-  const newName = prompt("اسم الجلسة الجديد:", currentName);
-  if (newName === null) return; // cancelled
-  const trimmed = newName.trim();
-  if (!trimmed || trimmed === currentName) return;
-
-  renameSessionBtn.disabled = true;
-  const ok = await renameSession(selectedSessionId, trimmed);
-  renameSessionBtn.disabled = false;
-
-  if (!ok) {
-    alert("تعذّر إعادة تسمية الجلسة. حاول مرة أخرى.");
-    return;
-  }
-
-  if (session) session.title = trimmed;
-  if (typeof setActiveSessionTitleIfMatches === "function") setActiveSessionTitleIfMatches(selectedSessionId, trimmed);
-  renderSessionChips();
-  await renderSelectedSession();
-});
-
 deleteSessionBtn.addEventListener("click", async () => {
   if (!selectedSessionId) return;
 
   const activeId = (typeof getActiveSessionId === "function") ? getActiveSessionId() : null;
-  if (activeId != null && activeId === selectedSessionId) return; // the last/active session can't be deleted
+  if (activeId != null && activeId === selectedSessionId) return; // the active ذاتي session can't be deleted
 
   const ok = confirm("هل تريد حذف هذه الجلسة؟ سيتم حذف كل إحصائياتها ولا يمكن التراجع.");
   if (!ok) return;
@@ -601,7 +504,6 @@ function renderSessionChips() {
       const rangeLabel = pageRangeLabel(s) || "—";
       return `
         <tr class="session-row${active ? " active" : ""}" data-id="${s.session_id}">
-          <td class="session-row-title">${escapeHtml(s.title)}</td>
           <td>${rangeLabel}</td>
           <td>${answers}</td>
           <td>${acc}</td>
@@ -650,7 +552,7 @@ function renderStatsHtml(attempts, session) {
     return `
       <div class="stat-summary">
         <div class="stat-big">—</div>
-        <div class="stat-caption">${escapeHtml(session?.title || "")} — لا توجد إجابات بعد في هذه الجلسة.</div>
+        <div class="stat-caption">لا توجد إجابات بعد في هذه الجلسة${pageRangeLabel(session) ? ` (${pageRangeLabel(session)})` : ""}.</div>
       </div>`;
   }
 
@@ -679,7 +581,7 @@ function renderStatsHtml(attempts, session) {
   return `
     <div class="stat-summary">
       <div class="stat-big">${pct}%</div>
-      <div class="stat-caption">${escapeHtml(session.title)} — ${correct} صحيحة من أصل ${total} محاولة${pageRangeLabel(session) ? ` — النطاق: ${pageRangeLabel(session)}` : ""}</div>
+      <div class="stat-caption">${correct} صحيحة من أصل ${total} محاولة${pageRangeLabel(session) ? ` — النطاق: ${pageRangeLabel(session)}` : ""}</div>
     </div>
     <div class="stat-rows">${rows}</div>
   `;
@@ -808,7 +710,7 @@ function renderLeaderboardHtml(rows, emptyMessage) {
         : "";
       return `
       <div class="stat-row leaderboard-row">
-        <div class="stat-row-label">${i + 1}. ${escapeHtml(r.display_name)}${levelLabel} — ${escapeHtml(r.title)}</div>
+        <div class="stat-row-label">${i + 1}. ${escapeHtml(r.display_name)}${levelLabel}</div>
         <div class="stat-row-value">${r.total_correct}/${r.total_answers} (${r.accuracy_pct}%)${rangeLabel}</div>
       </div>`;
     })
@@ -1263,7 +1165,7 @@ async function openFriendProfile(friendUserId) {
         const range = (s.range_min != null && s.range_max != null) ? `${s.range_min}–${s.range_max}` : "—";
         return `
           <div class="stat-row leaderboard-row">
-            <div class="stat-row-label">${escapeHtml(s.title)}${s.is_public ? " 🏆" : ""} — ${range}</div>
+            <div class="stat-row-label">${range}${s.is_public ? " 🏆" : ""}</div>
             <div class="stat-row-value">${s.total_correct}/${s.total_answers} (${pct}%)</div>
           </div>`;
       }).join("")

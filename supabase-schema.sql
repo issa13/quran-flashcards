@@ -107,6 +107,21 @@ alter table public.sessions
   add column if not exists range_min int,
   add column if not exists range_max int;
 
+-- "ذاتي" self-challenge config (⚔️ التحديات → ذاتي). A session created
+-- from that mode carries its own fixed question-type list and a
+-- single per-type question count shared across all of them (null =
+-- "غير محدد"/unlimited, meaning the quiz round-robins those types in
+-- 3-question blocks forever until the user ends it manually).
+-- finished_at marks when the quiz was completed or manually ended;
+-- null means it's still in progress and should be resumed on the
+-- next page load (see resolveActiveSelfChallenge() in app.js). Old
+-- sessions (from the retired session-backed Tests screen) simply
+-- have all three columns null and are never resumed as a ذاتي quiz.
+alter table public.sessions
+  add column if not exists question_types text[],
+  add column if not exists count_per_type int,
+  add column if not exists finished_at timestamptz;
+
 alter table public.sessions enable row level security;
 
 drop policy if exists "Users manage their own sessions" on public.sessions;

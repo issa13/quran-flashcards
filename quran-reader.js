@@ -479,31 +479,23 @@ function quranQuizRangeAround(spread) {
   return { minP: clamp(currentQuranPage - spread, 1, 604), maxP: clamp(currentQuranPage + spread, 1, 604) };
 }
 
-// Signed-in users: pre-fills and opens the create-session modal with
-// this range (page range is fixed per-session, so a new session is
-// the correct way to "start a quiz on this range"). Guests: sets the
-// custom range picker directly and jumps to the quiz tab.
+// The Tests screen no longer has any session concept — signed-in
+// users and guests share the exact same range picker now — so this
+// always just sets the custom range there and jumps to the quiz tab,
+// regardless of sign-in state. suggestedTitle is unused now that
+// sessions aren't named, but kept as a param so callers don't need
+// updating.
 async function startQuizFromQuranRange(range, suggestedTitle) {
   if (!range || range.minP > range.maxP) {
     alert("تعذّر تحديد نطاق صالح لهذا الاختيار.");
     return;
   }
-  if (currentUser) {
-    openCreateSessionModal();
-    newSessionNameInput.value = suggestedTitle || "اختبار سريع";
-    newSessionRangeSelect.value = "custom";
-    newSessionCustomMin.value = range.minP;
-    newSessionCustomMax.value = range.maxP;
-    showHideNewSessionCustomRange();
-    refreshCreateSessionSubmitState();
-  } else {
-    rangeSelect.value = "custom";
-    customMinEl.value = range.minP;
-    customMaxEl.value = range.maxP;
-    showHideCustomRange();
-    await refreshQuestionTypeAvailability();
-    switchView("home");
-  }
+  rangeSelect.value = "custom";
+  customMinEl.value = range.minP;
+  customMaxEl.value = range.maxP;
+  showHideCustomRange();
+  await refreshQuestionTypeAvailability();
+  switchView("home");
 }
 
 // -------- navigation --------

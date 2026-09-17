@@ -106,18 +106,24 @@ async function setActiveSessionId(sessionId) {
 
 // -------- sessions --------
 // rangeMin/rangeMax are set once, here, at creation — the page range
-// is now chosen when the session is created (see auth-ui.js's
-// create-session modal) and is permanent afterward (enforced by the
-// prevent_range_change trigger in supabase-schema.sql).
-async function createSession(title, rangeMin, rangeMax) {
+// is now chosen when the session is created and is permanent
+// afterward (enforced by the prevent_range_change trigger in
+// supabase-schema.sql). Sessions are now created exclusively from
+// ⚔️ التحديات → ذاتي (the old session-backed Tests screen no longer
+// creates or touches sessions at all), so no title/name is ever
+// collected from the user anymore — the column keeps its DB default.
+// questionTypes/countPerType capture the ذاتي quiz config (countPerType
+// null means "غير محدد" — unlimited, shared across every selected type).
+async function createSession(rangeMin, rangeMax, questionTypes, countPerType) {
   if (!sb || !currentUser) return null;
   const { data, error } = await sb
     .from("sessions")
     .insert({
       user_id: currentUser.id,
-      title: title || "جلسة جديدة",
       range_min: rangeMin ?? null,
       range_max: rangeMax ?? null,
+      question_types: questionTypes ?? null,
+      count_per_type: countPerType ?? null,
     })
     .select()
     .single();
@@ -129,14 +135,27 @@ async function createSession(title, rangeMin, rangeMax) {
   return data.id;
 }
 
-// Returns { id, rangeMin, rangeMax } for the session that should
-// receive new attempts (rangeMin/rangeMax are set once, at creation —
-// see createSession() — and are null only for an old session created
-// before that was required), or null if the person has no session at
-// all yet — a brand new signed-in user, or someone who deleted their
-// last one. Callers should prompt them to create their own first
-// session (their own range choice) rather than silently defaulting
-// them into one; see the "no active session yet" handling in app.js.
+// Marks a ذاتي quiz as done (reached its target count or the user
+// manually ended it) and clears it as the active session, so it's no
+// longer offered for resumption on the next page load. The session
+// row itself (and its attempts) is left alone — it still shows up in
+// "📊 الجلسات" and can still count toward the leaderboard.
+async function finishActiveSession(sessionId) {
+  if (!sb || !currentUser) return;
+  const { error } = await sb
+    .from("sessions")
+    .update({ finished_at: new Date().toISOString() })
+    .eq("id", sessionId);
+  if (error) console.error("finishActiveSession error", error);
+  await setActiveSessionId(null);
+}
+
+// Returns { id, rangeMin, rangeMax, questionTypes, countPerType } for
+// an in-progress ذاتي quiz that should be resumed (e.g. after a page
+// refresh) — a session whose finished_at is still null — or null if
+// there isn't one (nothing started yet, the last one finished, or a
+// guest with no account to store it against). Guests never get here:
+// their ذاتي runs are entirely in-memory, same as محلي.
 async function ensureActiveSession() {
   if (!sb || !currentUser) return null;
 
@@ -144,13 +163,46 @@ async function ensureActiveSession() {
   if (settings?.active_session_id) {
     const { data } = await sb
       .from("sessions")
-      .select("id, title, range_min, range_max")
+      .select("id, range_min, range_max, question_types, count_per_type, finished_at")
       .eq("id", settings.active_session_id)
       .maybeSingle();
-    if (data) return { id: data.id, title: data.title, rangeMin: data.range_min, rangeMax: data.range_max };
+    if (data && !data.finished_at) {
+      return {
+        id: data.id,
+        rangeMin: data.range_min,
+        rangeMax: data.range_max,
+        questionTypes: data.question_types,
+        countPerType: data.count_per_type,
+      };
+    }
   }
 
   return null;
+}
+
+// Per-type answer counts (plus overall total/correct) for a session —
+// used to rebuild "ذاتي" quiz progress after a page refresh (see
+// enterSelfChallengeMode() in app.js). The session row itself only
+// stores the target config (question_types/count_per_type), not a
+// live progress cursor, so progress is always derived from the
+// attempts already recorded against it.
+async function fetchSessionProgress(sessionId) {
+  if (!sb || !currentUser || !sessionId) return { byType: {}, total: 0, correct: 0 };
+  const { data, error } = await sb
+    .from("attempts")
+    .select("question_type, is_correct")
+    .eq("session_id", sessionId);
+  if (error) {
+    console.error("fetchSessionProgress error", error);
+    return { byType: {}, total: 0, correct: 0 };
+  }
+  const byType = {};
+  let correct = 0;
+  (data || []).forEach((row) => {
+    byType[row.question_type] = (byType[row.question_type] || 0) + 1;
+    if (row.is_correct) correct += 1;
+  });
+  return { byType, total: (data || []).length, correct };
 }
 
 async function fetchMySessions() {
@@ -193,19 +245,6 @@ async function setSessionPublic(sessionId, isPublic) {
     return { ok: false };
   }
   return { ok: true, is_public: data[0].is_public };
-}
-
-async function renameSession(sessionId, title) {
-  if (!sb || !currentUser) return false;
-  const { error } = await sb
-    .from("sessions")
-    .update({ title })
-    .eq("id", sessionId);
-  if (error) {
-    console.error("renameSession error", error);
-    return false;
-  }
-  return true;
 }
 
 // -------- attempts sync --------
@@ -263,25 +302,6 @@ async function fetchSessionAttempts(sessionId) {
     return null;
   }
   return data;
-}
-
-// Distinct pages where this session has at least one wrong answer —
-// used by app.js's mistake-review mode to restrict which pages new
-// questions are drawn from.
-async function fetchSessionWrongPages(sessionId) {
-  if (!sb || !currentUser || !sessionId) return [];
-  const { data, error } = await sb
-    .from("attempts")
-    .select("page")
-    .eq("session_id", sessionId)
-    .eq("is_correct", false)
-    .not("page", "is", null)
-    .limit(2000);
-  if (error) {
-    console.error("fetchSessionWrongPages error", error);
-    return [];
-  }
-  return Array.from(new Set((data || []).map((r) => r.page).filter((p) => p != null)));
 }
 
 // -------- profile --------

@@ -58,8 +58,8 @@ const viewPageInQuranBtn = document.getElementById("viewPageInQuranBtn");
 const qTypeSelect = document.getElementById("qTypeSelect");
 const timerSelect = document.getElementById("timerSelect");
 
-// Guest-only range picker (signed-in users' range comes from their
-// active session instead — see sessionRangeRow/sessionRangeDisplay).
+// Range picker — same for everyone now (guests and signed-in users
+// alike). Session-backed quizzes live under ⚔️ التحديات → ذاتي.
 const guestRangeRow = document.getElementById("guestRangeRow");
 const rangeSelect = document.getElementById("rangeSelect");
 const customRangeRow = document.getElementById("customRangeRow");
@@ -67,14 +67,6 @@ const customMinEl = document.getElementById("customMin");
 const customMaxEl = document.getElementById("customMax");
 
 const topbarSessionName = document.getElementById("topbarSessionName");
-
-// Signed-in-only fixed range display
-const sessionRangeRow = document.getElementById("sessionRangeRow");
-const sessionRangeDisplay = document.getElementById("sessionRangeDisplay");
-
-const mistakeReviewRow = document.getElementById("mistakeReviewRow");
-const mistakeReviewToggle = document.getElementById("mistakeReviewToggle");
-const mistakeReviewHint = document.getElementById("mistakeReviewHint");
 
 const scoreBox = document.getElementById("scoreBox");
 const comboBox = document.getElementById("comboBox");
@@ -245,63 +237,10 @@ let currentRangeMax = null;
 let currentQAyahNumber = null;
 let currentAudioEl = null;
 
-// Active session (signed-in users only) — always the user's last
-// (most recently created) session, and the ONLY session new attempts
-// get attached to. Browsing other sessions in the stats modal never
-// changes this.
-//
-// activeSessionRangeMin/Max is the page range this session was
-// created with — chosen once, in the "create session" modal, and
-// permanent from then on (enforced by a DB trigger too — see
-// supabase-schema.sql). Exposed to auth-ui.js via the getter/setter
-// below.
-let activeSessionId = null;
-let activeSessionRangeMin = null;
-let activeSessionRangeMax = null;
-let activeSessionTitle = null;
-function getActiveSessionId() { return activeSessionId; }
-function syncActiveSessionId(id, rangeMin, rangeMax, title) {
-  activeSessionId = id;
-  activeSessionRangeMin = rangeMin ?? null;
-  activeSessionRangeMax = rangeMax ?? null;
-  activeSessionTitle = title ?? null;
-  setTopbarSessionName(activeSessionTitle);
-  resetMistakeReview();
-}
-
-// Called whenever the active session's own title changes (renaming it
-// from the stats modal) so the topbar reflects it immediately.
-function setActiveSessionTitleIfMatches(sessionId, title) {
-  if (sessionId !== activeSessionId) return;
-  activeSessionTitle = title;
-  setTopbarSessionName(title);
-}
-
-// Mistake-review mode (signed-in users only) — when active, new
-// questions draw their page only from mistakeReviewPages (the pages
-// with a wrong answer in the CURRENT session) instead of the full
-// session range. Distractors still use the full range (see
-// buildChoices()), so answer quality doesn't degrade. Resets whenever
-// the active session changes (see syncActiveSessionId() above).
-let mistakeReviewActive = false;
-let mistakeReviewPages = [];
-
-function resetMistakeReview() {
-  mistakeReviewActive = false;
-  mistakeReviewPages = [];
-  mistakeReviewToggle.checked = false;
-  mistakeReviewRow.classList.remove("active");
-  mistakeReviewHint.textContent = "سيتم اختيار الأسئلة من الصفحات التي أخطأت فيها فقط، وتُزال الصفحة تلقائيًا بعد إتقانها.";
-}
-
-// Which of the given pages are actually usable for this question
-// type — the adjacent-page types need room on the correct side (same
-// boundary safety as generateCard()'s normal page selection).
-function filterPagesForType(pages, type, minP, maxP) {
-  if (type === "nextPageFirst" || type === "pageEndToNextFirst") return pages.filter((p) => p < maxP);
-  if (type === "prevPageFirst" || type === "pageStartToPrevLast") return pages.filter((p) => p > minP);
-  return pages;
-}
+// (Session tracking and mistake-review mode used to live here for the
+// Tests screen — they now belong exclusively to ⚔️ التحديات → ذاتي;
+// see the self-challenge section below for getActiveSessionId()/
+// syncActiveSessionId().)
 
 // Timer state
 let timerInterval = null;
@@ -477,43 +416,17 @@ function getGuestRangeFromSelect() {
   return bounds;
 }
 
-// The range actually in effect right now: the active session's fixed
-// range when signed in (null if that session somehow has none — an
-// old session from before ranges were required), or the guest
-// picker's current value otherwise.
+// The range actually in effect right now on the Tests screen — always
+// the guest picker's current value. The Tests screen no longer has
+// any session concept (signed-in and guest users share the exact
+// same experience here); session-backed quizzes now live entirely
+// under ⚔️ التحديات → ذاتي (see the self-challenge section below).
 function getActiveRange() {
-  if (currentUser) {
-    if (activeSessionId && activeSessionRangeMin != null && activeSessionRangeMax != null) {
-      return { minP: activeSessionRangeMin, maxP: activeSessionRangeMax };
-    }
-    return null;
-  }
   return getGuestRangeFromSelect();
-}
-
-function setActiveRangeDisplay(minP, maxP) {
-  sessionRangeDisplay.textContent = (minP != null && maxP != null) ? `${minP}–${maxP}` : "—";
 }
 
 function setTopbarSessionName(title) {
   topbarSessionName.textContent = title || "";
-}
-
-function showGuestRangeUI() {
-  guestRangeRow.style.display = "flex";
-  showHideCustomRange();
-  sessionRangeRow.style.display = "none";
-  mistakeReviewRow.style.display = "none";
-  resetMistakeReview();
-  setTopbarSessionName("");
-}
-
-function showSessionRangeUI(minP, maxP) {
-  guestRangeRow.style.display = "none";
-  customRangeRow.style.display = "none";
-  sessionRangeRow.style.display = "flex";
-  mistakeReviewRow.style.display = "flex";
-  setActiveRangeDisplay(minP, maxP);
 }
 
 // -------- generation gating --------
@@ -530,13 +443,6 @@ function rangeTooNarrowMessage(typeLabel, count, singularUnit, pluralUnit, requi
 async function checkGenerationBlock(type, minP, maxP) {
   if (ADJACENT_TYPES.has(type) && maxP <= minP) {
     return "يلزم نطاق يشمل أكثر من صفحة واحدة لإنشاء هذا النوع من الأسئلة. وسّع نطاق الصفحات أو اختر نوع سؤال آخر.";
-  }
-
-  if (mistakeReviewActive) {
-    const pages = filterPagesForType(mistakeReviewPages, type, minP, maxP);
-    if (pages.length === 0) {
-      return "لا توجد صفحات أخطاء مناسبة لهذا النوع من الأسئلة ضمن وضع المراجعة. جرّب نوعًا آخر أو أوقف وضع المراجعة.";
-    }
   }
 
   if (type === "juz") {
@@ -1305,20 +1211,6 @@ function finishQuestion(isCorrect) {
 
   saveGuestScore();
 
-  // A mistake-review page that's now answered correctly drops out of
-  // the active review pool so it doesn't keep coming back up.
-  if (isCorrect && mistakeReviewActive && currentPage != null) {
-    mistakeReviewPages = mistakeReviewPages.filter((p) => p !== currentPage);
-    mistakeReviewHint.textContent = mistakeReviewPages.length
-      ? `عدد صفحات المراجعة: ${mistakeReviewPages.length}. ستُزال كل صفحة تلقائيًا فور إتقانها.`
-      : "أتقنت كل صفحات المراجعة في هذه الجلسة! 🎉";
-    if (!mistakeReviewPages.length) {
-      mistakeReviewActive = false;
-      mistakeReviewToggle.checked = false;
-      mistakeReviewRow.classList.remove("active");
-    }
-  }
-
   if (typeof recordAttempt === "function" && currentQuestionType) {
     // Read from the browser's own clock (not UTC) so the
     // night_owl/early_bird/weekend_warrior badges in
@@ -1331,7 +1223,7 @@ function finishQuestion(isCorrect) {
       questionType: currentQuestionType,
       page: currentPage,
       isCorrect,
-      sessionId: activeSessionId,
+      sessionId: null, // Tests screen no longer belongs to any session
       rangeMin: currentRangeMin,
       rangeMax: currentRangeMax,
       localHour,
@@ -1379,16 +1271,9 @@ async function generateCard() {
     // Adjacent-page types are kept strictly inside [minP, maxP] by
     // never landing on the range's own last/first page as the
     // "question" page — so their answer (on the next/previous page)
-    // always stays within the selected range too. In mistake-review
-    // mode, the page comes from mistakeReviewPages instead of the
-    // full range (checkGenerationBlock() already guaranteed a valid
-    // one exists for this type) — buildChoices() below still uses the
-    // full [minP, maxP] for distractors either way.
+    // always stays within the selected range too.
     let page;
-    if (mistakeReviewActive) {
-      const pages = filterPagesForType(mistakeReviewPages, type, minP, maxP);
-      page = pages[randInt(0, pages.length - 1)];
-    } else if (type === "nextPageFirst" || type === "pageEndToNextFirst") {
+    if (type === "nextPageFirst" || type === "pageEndToNextFirst") {
       page = randInt(minP, maxP - 1);
     } else if (type === "prevPageFirst" || type === "pageStartToPrevLast") {
       page = randInt(minP + 1, maxP);
@@ -2069,6 +1954,7 @@ resetChallengeToSetup();
 const challengeModeToggle = document.getElementById("challengeModeToggle");
 const challengeOfflineWrap = document.getElementById("challengeOfflineWrap");
 const challengeOnlineWrap = document.getElementById("challengeOnlineWrap");
+const challengeSelfWrap = document.getElementById("challengeSelfWrap");
 
 const duelGuestNotice = document.getElementById("duelGuestNotice");
 const duelHubSection = document.getElementById("duelHubSection");
@@ -2162,7 +2048,7 @@ function resolveDuelOpponentId(duel) {
   return duel.created_by === currentUser.id ? duel.opponent_id : duel.created_by;
 }
 
-// -------- مباشر/محلي mode toggle --------
+// -------- محلي/مباشر/ذاتي mode toggle --------
 challengeModeToggle.querySelectorAll(".challenge-mode-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     challengeModeToggle.querySelectorAll(".challenge-mode-btn").forEach((b) => b.classList.remove("active"));
@@ -2170,8 +2056,10 @@ challengeModeToggle.querySelectorAll(".challenge-mode-btn").forEach((btn) => {
     const mode = btn.dataset.mode;
     challengeOfflineWrap.style.display = mode === "offline" ? "block" : "none";
     challengeOnlineWrap.style.display = mode === "online" ? "block" : "none";
+    challengeSelfWrap.style.display = mode === "self" ? "block" : "none";
     if (mode === "online") enterOnlineDuelMode();
     else switchDuelScreen(null);
+    if (mode === "self") enterSelfChallengeMode();
   });
 });
 
@@ -3013,6 +2901,7 @@ async function onDuelInviteAccepted(id) {
   });
   challengeOfflineWrap.style.display = "none";
   challengeOnlineWrap.style.display = "block";
+  challengeSelfWrap.style.display = "none";
 
   const duel = await fetchDuelState(id);
   if (!duel) { switchDuelScreen("hub"); return; }
@@ -3022,6 +2911,590 @@ async function onDuelInviteAccepted(id) {
 // -------- init --------
 renderDuelTypesGrid();
 showHideDuelCustomRange();
+
+// ============================================================
+// Self-challenge mode (⚔️ تحديات → ذاتي) — a solo, session-backed
+// quiz. This is where the old session-backed Tests screen's
+// functionality moved to: the range/type/count are chosen once at
+// setup (like محلي), then questions come in sequential blocks of
+// exactly SELF_BLOCK_SIZE (3) same-type questions — answering inside
+// a block auto-advances immediately (like the Tests screen), but the
+// block pauses for a manual tap before the next one starts, whether
+// that next block repeats the same type or moves to a new one.
+//
+// Signed-in users get a real `sessions` row (see supabase-schema.sql)
+// that survives a page refresh — getActiveSessionId()/
+// syncActiveSessionId() below are the same hooks auth-ui.js already
+// uses to highlight the active session in "📊 الجلسات", just now
+// pointed at the self-challenge session instead of the retired
+// session-backed Tests screen. Guests play fully in-memory, exactly
+// like محلي — nothing persists across a refresh and nothing counts
+// toward the leaderboard.
+//
+// Reuses the exact same pure question-generation helpers as Tests/
+// محلي (fetchPageAyahs, pickQAFromPage, pickAdjacentPageQA,
+// buildChoices, ADJACENT_TYPES, getTypeLabel/getTypeDescription) so a
+// ذاتي question looks and behaves exactly like a normal one — only
+// the surrounding interaction (timer, audio button, choice list,
+// block pacing) is its own copy, same pattern as محلي/مباشر each
+// having their own.
+// ============================================================
+
+const SELF_TYPES = CHALLENGE_TYPES;
+const SELF_MIN_TYPES = 1;
+const SELF_BLOCK_SIZE = 3;
+
+const selfSetupSection = document.getElementById("selfSetupSection");
+const selfPlaySection = document.getElementById("selfPlaySection");
+const selfResultsSection = document.getElementById("selfResultsSection");
+
+const selfRangeSelect = document.getElementById("selfRangeSelect");
+const selfTimerSelect = document.getElementById("selfTimerSelect");
+const selfCustomRangeRow = document.getElementById("selfCustomRangeRow");
+const selfCustomMin = document.getElementById("selfCustomMin");
+const selfCustomMax = document.getElementById("selfCustomMax");
+const selfTypesGrid = document.getElementById("selfTypesGrid");
+const selfCountSelect = document.getElementById("selfCountSelect");
+const selfStartBtn = document.getElementById("selfStartBtn");
+const selfSetupError = document.getElementById("selfSetupError");
+
+const selfEndBtn = document.getElementById("selfEndBtn");
+const selfProgressLabel = document.getElementById("selfProgressLabel");
+const selfScoreBox = document.getElementById("selfScoreBox");
+const selfBlockPause = document.getElementById("selfBlockPause");
+const selfBlockPauseLabel = document.getElementById("selfBlockPauseLabel");
+const selfBlockPauseDesc = document.getElementById("selfBlockPauseDesc");
+const selfBlockContinueBtn = document.getElementById("selfBlockContinueBtn");
+const selfQuestionArea = document.getElementById("selfQuestionArea");
+const selfProgressBar = document.getElementById("selfProgressBar");
+const selfFlashcard = document.getElementById("selfFlashcard");
+const selfCardHelp = document.getElementById("selfCardHelp");
+const selfQText = document.getElementById("selfQText");
+const selfMcqChoices = document.getElementById("selfMcqChoices");
+const selfPlayAudioBtn = document.getElementById("selfPlayAudioBtn");
+
+const selfResultsBody = document.getElementById("selfResultsBody");
+const selfBackToSetupBtn = document.getElementById("selfBackToSetupBtn");
+
+// -------- state --------
+// Exposed to auth-ui.js exactly like the old Tests-screen session
+// hooks were: getActiveSessionId() for "which session is active right
+// now" (used to highlight it in the sessions table and to block
+// deleting it), syncActiveSessionId() to update that pointer whenever
+// a ذاتي quiz starts or ends.
+let selfActiveSessionId = null;
+function getActiveSessionId() { return selfActiveSessionId; }
+function syncActiveSessionId(id) { selfActiveSessionId = id; }
+
+let selfRangeMinP = null;
+let selfRangeMaxP = null;
+let selfTimerSeconds = 30;
+let selfSelectedTypes = [];
+let selfCountPerType = null; // null = غير محدد (unlimited, shared across every selected type)
+let selfUnlimited = false;
+
+let selfQueue = [];       // head = the next (or currently shown) question's type
+let selfCycleTypes = [];  // unlimited mode only: round-robin order, replenished 3 at a time
+let selfCycleIndex = 0;
+let selfTypeCounts = {};  // { [type]: how many already answered THIS session } — drives resume + remaining-per-type
+
+let selfTotalQuestions = 0; // finite mode only, for the progress label
+let selfQuestionIndex = 0;
+let selfLastShownType = null;
+let selfBlockPosition = 0; // 1-based position within the current same-type block
+
+let selfCorrect = 0;
+let selfTotal = 0;
+
+let selfCurrentCorrectIndex = -1;
+let selfCurrentQuestionType = null;
+let selfCurrentPage = null;
+let selfAnswered = false;
+let selfHasActiveCard = false;
+
+let selfTimerInterval = null;
+let selfTimerStart = null;
+let selfTimerDurationMs = 0;
+
+let selfAudioEl = null;
+let selfCurrentAudioAyah = null;
+
+// -------- setup UI --------
+function renderSelfTypesGrid() {
+  selfTypesGrid.innerHTML = "";
+  SELF_TYPES.forEach((type) => {
+    const label = document.createElement("label");
+    label.className = "challenge-type-chip";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = type;
+    cb.addEventListener("change", () => {
+      label.classList.toggle("checked", cb.checked);
+      refreshSelfStartAvailability();
+    });
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(getTypeLabel(type)));
+    selfTypesGrid.appendChild(label);
+  });
+}
+
+function getSelectedSelfTypes() {
+  return Array.from(selfTypesGrid.querySelectorAll("input[type=checkbox]:checked")).map((cb) => cb.value);
+}
+
+function showHideSelfCustomRange() {
+  selfCustomRangeRow.style.display = (selfRangeSelect.value === "custom") ? "flex" : "none";
+}
+selfRangeSelect.addEventListener("change", () => { showHideSelfCustomRange(); refreshSelfStartAvailability(); });
+[selfCustomMin, selfCustomMax].forEach((el) => el.addEventListener("change", refreshSelfStartAvailability));
+
+let selfValidationToken = 0;
+async function refreshSelfStartAvailability() {
+  const myToken = ++selfValidationToken;
+  const selectedTypes = getSelectedSelfTypes();
+  const enoughTypes = selectedTypes.length >= SELF_MIN_TYPES;
+
+  let msg = "";
+  if (!enoughTypes) msg = "اختر نوع سؤال واحدًا على الأقل.";
+
+  if (!msg) {
+    const range = resolveRangeBounds(selfRangeSelect.value, selfCustomMin.value, selfCustomMax.value);
+    for (const type of selectedTypes) {
+      const blocked = await challengeTypeBlockMessage(type, range.minP, range.maxP);
+      if (blocked) { msg = `"${getTypeLabel(type)}": ${blocked}`; break; }
+    }
+  }
+
+  if (myToken !== selfValidationToken) return; // a newer check superseded this one
+  selfSetupError.textContent = msg;
+  selfStartBtn.disabled = !!msg;
+}
+
+// -------- queue --------
+// Builds (or rebuilds, on resume) the remaining queue from
+// selfTypeCounts — how many of each selected type still need
+// answering to reach selfCountPerType. Types are grouped into
+// consecutive blocks (shuffled order), same principle as محلي's
+// buildChallengeQueue(), just remaining-aware so a resumed quiz picks
+// up exactly where it left off instead of restarting each type.
+function buildSelfQueueFromRemaining() {
+  const orderedTypes = shuffle([...selfSelectedTypes]);
+  const queue = [];
+  orderedTypes.forEach((type) => {
+    const done = selfTypeCounts[type] || 0;
+    const remaining = Math.max(0, (selfCountPerType || 0) - done);
+    for (let i = 0; i < remaining; i++) queue.push(type);
+  });
+  return queue;
+}
+
+// Unlimited mode has no finite queue to pre-build — instead, whenever
+// it empties, append the next SELF_BLOCK_SIZE questions of the next
+// type in the round-robin. This is the only difference from finite
+// mode; everything downstream (pausing, generating, progress) treats
+// selfQueue the same way either way.
+function replenishSelfQueueIfNeeded() {
+  if (!selfUnlimited || selfQueue.length > 0) return;
+  const type = selfCycleTypes[selfCycleIndex % selfCycleTypes.length];
+  selfCycleIndex++;
+  for (let i = 0; i < SELF_BLOCK_SIZE; i++) selfQueue.push(type);
+}
+
+// -------- starting / resuming --------
+selfStartBtn.addEventListener("click", async () => {
+  const selectedTypes = getSelectedSelfTypes();
+  const range = resolveRangeBounds(selfRangeSelect.value, selfCustomMin.value, selfCustomMax.value);
+  const rawCount = selfCountSelect.value;
+  const countPerType = rawCount === "unlimited" ? null : (parseInt(rawCount, 10) || 5);
+
+  selfRangeMinP = range.minP;
+  selfRangeMaxP = range.maxP;
+  selfTimerSeconds = parseInt(selfTimerSelect.value, 10) || 0;
+  selfSelectedTypes = selectedTypes;
+  selfCountPerType = countPerType;
+  selfUnlimited = countPerType == null;
+  selfTypeCounts = {};
+  selfCorrect = 0;
+  selfTotal = 0;
+  selfQuestionIndex = 0;
+  selfLastShownType = null;
+  selfBlockPosition = 0;
+
+  if (currentUser && typeof createSession === "function") {
+    const newId = await createSession(range.minP, range.maxP, selectedTypes, countPerType);
+    syncActiveSessionId(newId);
+  } else {
+    syncActiveSessionId(null); // guest — fully ephemeral, nothing persisted
+  }
+
+  if (selfUnlimited) {
+    selfCycleTypes = shuffle([...selfSelectedTypes]);
+    selfCycleIndex = 0;
+    selfQueue = [];
+  } else {
+    selfQueue = buildSelfQueueFromRemaining();
+    selfTotalQuestions = selfSelectedTypes.length * selfCountPerType;
+  }
+
+  updateSelfScoreBox();
+  selfSetupSection.style.display = "none";
+  selfResultsSection.style.display = "none";
+  selfPlaySection.style.display = "block";
+  await nextSelfQuestion();
+});
+
+// Called when switching to the ⚔️ التحديات → ذاتي tab. If a
+// signed-in user already has an unfinished ذاتي quiz (e.g. they
+// refreshed the page mid-quiz), resumes it by rebuilding the queue
+// from recorded attempts rather than dropping them back to setup.
+async function enterSelfChallengeMode() {
+  // Already mid-quiz (or showing results) from earlier this same page
+  // load — just switching tabs and back, leave it exactly as is.
+  if (selfPlaySection.style.display === "block" || selfResultsSection.style.display === "block") return;
+
+  if (currentUser && typeof ensureActiveSession === "function") {
+    const active = await ensureActiveSession();
+    if (active && active.questionTypes && active.questionTypes.length) {
+      selfRangeMinP = active.rangeMin;
+      selfRangeMaxP = active.rangeMax;
+      selfSelectedTypes = active.questionTypes;
+      selfCountPerType = active.countPerType;
+      selfUnlimited = active.countPerType == null;
+      syncActiveSessionId(active.id);
+
+      const progress = (typeof fetchSessionProgress === "function") ? await fetchSessionProgress(active.id) : null;
+      selfTypeCounts = progress?.byType || {};
+      selfTotal = progress?.total || 0;
+      selfCorrect = progress?.correct || 0;
+      selfQuestionIndex = selfTotal;
+      selfLastShownType = null;
+      selfBlockPosition = 0;
+
+      if (selfUnlimited) {
+        selfCycleTypes = shuffle([...selfSelectedTypes]);
+        selfCycleIndex = 0;
+        selfQueue = [];
+      } else {
+        selfQueue = buildSelfQueueFromRemaining();
+        selfTotalQuestions = selfSelectedTypes.length * selfCountPerType;
+        if (selfQueue.length === 0) {
+          // Already complete (e.g. finished from another tab) — just
+          // close it out instead of resuming an empty quiz.
+          await finishSelfChallenge(true);
+          return;
+        }
+      }
+
+      updateSelfScoreBox();
+      selfSetupSection.style.display = "none";
+      selfResultsSection.style.display = "none";
+      selfPlaySection.style.display = "block";
+      await nextSelfQuestion();
+      return;
+    }
+  }
+
+  resetSelfToSetup();
+}
+
+// -------- play --------
+function updateSelfScoreBox() {
+  selfScoreBox.textContent = `النتيجة: ${selfCorrect} / ${selfTotal}`;
+}
+
+function renderSelfChoices(choices) {
+  selfMcqChoices.innerHTML = "";
+  choices.forEach((choiceText, idx) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "mcq-choice";
+    btn.textContent = choiceText;
+    btn.style.fontSize = choiceFontSize(choiceText);
+    btn.dataset.index = String(idx);
+    selfMcqChoices.appendChild(btn);
+  });
+}
+
+function revealSelfChoices(chosenIndex) {
+  Array.from(selfMcqChoices.children).forEach((btn, idx) => {
+    btn.disabled = true;
+    if (idx === selfCurrentCorrectIndex) btn.classList.add("correct");
+    if (idx === chosenIndex && idx !== selfCurrentCorrectIndex) btn.classList.add("wrong");
+  });
+}
+
+selfMcqChoices.addEventListener("click", (e) => {
+  const btn = e.target.closest(".mcq-choice");
+  if (!btn || btn.disabled) return;
+  if (!selfHasActiveCard || selfAnswered) return;
+
+  const idx = Number(btn.dataset.index);
+  const isCorrect = idx === selfCurrentCorrectIndex;
+
+  stopSelfTimer();
+  revealSelfChoices(idx);
+  finishSelfQuestion(isCorrect);
+});
+
+function stopSelfTimer() {
+  if (selfTimerInterval) {
+    clearInterval(selfTimerInterval);
+    selfTimerInterval = null;
+  }
+  selfProgressBar.style.width = "0%";
+}
+
+function startSelfTimer() {
+  stopSelfTimer();
+  if (selfTimerSeconds <= 0) return; // "بدون مؤقت"
+
+  selfTimerDurationMs = selfTimerSeconds * 1000;
+  selfTimerStart = Date.now();
+  selfProgressBar.style.width = "0%";
+
+  selfTimerInterval = setInterval(() => {
+    const elapsed = Date.now() - selfTimerStart;
+    const pct = clamp((elapsed / selfTimerDurationMs) * 100, 0, 100);
+    selfProgressBar.style.width = pct + "%";
+    if (elapsed >= selfTimerDurationMs) {
+      stopSelfTimer();
+      if (selfHasActiveCard && !selfAnswered) {
+        revealSelfChoices(-1); // -1 = no selection made, just reveal the correct one
+        finishSelfQuestion(false);
+      }
+    }
+  }, 100);
+}
+
+function selfAudioStop() {
+  if (selfAudioEl) {
+    selfAudioEl.pause();
+    selfAudioEl.currentTime = 0;
+    selfAudioEl = null;
+  }
+  selfPlayAudioBtn.textContent = "🔊 استماع";
+  selfPlayAudioBtn.classList.remove("playing");
+}
+
+selfPlayAudioBtn.addEventListener("click", async () => {
+  if (selfAudioEl && !selfAudioEl.paused) {
+    selfAudioStop();
+    return;
+  }
+  if (!selfCurrentAudioAyah) return;
+
+  selfPlayAudioBtn.disabled = true;
+  selfPlayAudioBtn.textContent = "⏳ جارٍ التحميل...";
+  try {
+    const url = await fetchAyahAudioUrl(selfCurrentAudioAyah);
+    if (!url) throw new Error("no audio url");
+    selfAudioEl = new Audio(url);
+    selfAudioEl.addEventListener("ended", selfAudioStop);
+    await selfAudioEl.play();
+    selfPlayAudioBtn.textContent = "⏸️ إيقاف";
+    selfPlayAudioBtn.classList.add("playing");
+  } catch (e) {
+    selfAudioStop();
+  } finally {
+    selfPlayAudioBtn.disabled = false;
+  }
+});
+
+// Decides what happens next: finish (queue truly empty — finite mode
+// only), pause for a new block (type changed, or SELF_BLOCK_SIZE
+// reached), or go straight to the next question (same block
+// continuing). Called both to kick off the very first question and
+// after every answer.
+async function nextSelfQuestion() {
+  selfAnswered = false;
+  stopSelfTimer();
+  selfAudioStop();
+
+  replenishSelfQueueIfNeeded();
+
+  if (selfQueue.length === 0) {
+    await finishSelfChallenge(true);
+    return;
+  }
+
+  const nextType = selfQueue[0];
+  const blockDone = (nextType !== selfLastShownType) || (selfBlockPosition >= SELF_BLOCK_SIZE);
+
+  if (blockDone) {
+    showSelfBlockPause(nextType);
+    return;
+  }
+
+  await proceedToSelfQuestion();
+}
+
+function showSelfBlockPause(nextType) {
+  selfQuestionArea.style.display = "none";
+  selfBlockPause.style.display = "block";
+  selfBlockPauseLabel.textContent = selfLastShownType
+    ? `أكملت بلوكًا من نوع: ${getTypeLabel(selfLastShownType)}`
+    : "جاهز للبدء";
+  const blockAhead = Math.min(selfQueue.filter((t) => t === nextType).length, SELF_BLOCK_SIZE);
+  selfBlockPauseDesc.textContent = `التالي: ${blockAhead === 1 ? "سؤال واحد" : `${blockAhead} أسئلة`} من نوع "${getTypeLabel(nextType)}"`;
+  selfBlockPosition = 0; // reset — the upcoming block starts fresh
+}
+
+selfBlockContinueBtn.addEventListener("click", async () => {
+  selfBlockPause.style.display = "none";
+  selfQuestionArea.style.display = "block";
+  await proceedToSelfQuestion();
+});
+
+// Generates and shows the question at the head of selfQueue. Retries
+// a few times on a transient generation failure (same class of
+// failure Tests/محلي mode can hit), and discards the slot on
+// persistent failure rather than getting the quiz stuck.
+async function proceedToSelfQuestion() {
+  const type = selfQueue.shift();
+  selfBlockPosition = (type === selfLastShownType) ? selfBlockPosition + 1 : 1;
+  selfLastShownType = type;
+  selfQuestionIndex++;
+
+  selfProgressLabel.textContent = selfUnlimited
+    ? `سؤال ${selfQuestionIndex} — النوع: ${getTypeLabel(type)} (${selfBlockPosition}/${SELF_BLOCK_SIZE})`
+    : `سؤال ${selfQuestionIndex} من ${selfTotalQuestions} — النوع: ${getTypeLabel(type)}`;
+
+  let qa = null;
+  let page = null;
+  let attempts = 0;
+  while (!qa && attempts < 6) {
+    attempts++;
+    if (type === "nextPageFirst" || type === "pageEndToNextFirst") page = randInt(selfRangeMinP, selfRangeMaxP - 1);
+    else if (type === "prevPageFirst" || type === "pageStartToPrevLast") page = randInt(selfRangeMinP + 1, selfRangeMaxP);
+    else page = randInt(selfRangeMinP, selfRangeMaxP);
+
+    try {
+      if (ADJACENT_TYPES.has(type)) {
+        qa = await pickAdjacentPageQA(type, page);
+      } else {
+        const ayahs = await fetchPageAyahs(page);
+        qa = pickQAFromPage(ayahs, type, page);
+      }
+    } catch (e) {
+      qa = null;
+    }
+    if (qa && !qa.q && !qa.audioOnly) qa = null;
+    if (qa && !qa.a) qa = null;
+  }
+
+  if (!qa) {
+    replenishSelfQueueIfNeeded();
+    if (selfQueue.length === 0) { await finishSelfChallenge(true); return; }
+    await proceedToSelfQuestion();
+    return;
+  }
+
+  const built = await buildChoices(qa, selfRangeMinP, selfRangeMaxP);
+  if (!built || built.choices.length < 2 || built.correctIndex < 0) {
+    replenishSelfQueueIfNeeded();
+    if (selfQueue.length === 0) { await finishSelfChallenge(true); return; }
+    await proceedToSelfQuestion();
+    return;
+  }
+
+  selfCurrentCorrectIndex = built.correctIndex;
+  selfCurrentQuestionType = type;
+  selfCurrentPage = page;
+  selfCurrentAudioAyah = qa.qAyahNumber || null;
+
+  const isAudioOnly = !!qa.audioOnly;
+  selfFlashcard.classList.toggle("audio-question", isAudioOnly);
+  selfCardHelp.textContent = `النوع: ${getTypeLabel(type)} — ${getTypeDescription(type)}`;
+  setCardText(selfQText, isAudioOnly ? "🎧 اضغط زر الاستماع لسماع الآية، ثم اختر الآية التالية لها" : qa.q);
+  renderSelfChoices(built.choices);
+  selfPlayAudioBtn.style.display = selfCurrentAudioAyah ? "inline-flex" : "none";
+
+  selfHasActiveCard = true;
+  startSelfTimer();
+}
+
+function finishSelfQuestion(isCorrect) {
+  if (selfAnswered) return;
+  selfAnswered = true;
+
+  selfTotal += 1;
+  if (isCorrect) selfCorrect += 1;
+  selfTypeCounts[selfCurrentQuestionType] = (selfTypeCounts[selfCurrentQuestionType] || 0) + 1;
+  updateSelfScoreBox();
+
+  const flashClass = isCorrect ? "flash-correct" : "flash-wrong";
+  selfFlashcard.classList.add(flashClass);
+  setTimeout(() => selfFlashcard.classList.remove(flashClass), 700);
+
+  if (typeof recordAttempt === "function" && currentUser && selfActiveSessionId) {
+    const now = new Date();
+    recordAttempt({
+      questionType: selfCurrentQuestionType,
+      page: selfCurrentPage,
+      isCorrect,
+      sessionId: selfActiveSessionId,
+      rangeMin: selfRangeMinP,
+      rangeMax: selfRangeMaxP,
+      localHour: now.getHours(),
+      isWeekend: now.getDay() === 5 || now.getDay() === 6,
+    }).then((result) => {
+      if (result?.ok && result.newlyEarned && result.newlyEarned.length) showAchievementToasts(result.newlyEarned);
+      if (result?.ok && result.xpGained) showXpPopup(result.xpGained);
+      if (result?.ok && result.xp != null && typeof updateLevelBadge === "function") updateLevelBadge(result.xp);
+    }).catch(() => { /* non-fatal: keep the quiz usable offline */ });
+  }
+
+  setTimeout(() => { nextSelfQuestion(); }, 900);
+}
+
+selfEndBtn.addEventListener("click", async () => {
+  if (!confirm("هل تريد إنهاء الاختبار الآن؟")) return;
+  stopSelfTimer();
+  selfAudioStop();
+  await finishSelfChallenge(false);
+});
+
+// -------- results --------
+async function finishSelfChallenge(natural) {
+  selfPlaySection.style.display = "none";
+  selfResultsSection.style.display = "block";
+
+  if (currentUser && selfActiveSessionId && typeof finishActiveSession === "function") {
+    await finishActiveSession(selfActiveSessionId);
+  }
+  syncActiveSessionId(null);
+
+  const pct = selfTotal > 0 ? Math.round((selfCorrect / selfTotal) * 100) : 0;
+  selfResultsBody.innerHTML = `
+    <div class="stat-summary">
+      <div class="stat-big" style="font-size:20px;">${selfCorrect} / ${selfTotal} (${pct}%)</div>
+      <div class="stat-caption">${natural ? "انتهى الاختبار 🎉" : "تم إنهاء الاختبار يدويًا"}</div>
+    </div>`;
+}
+
+function resetSelfToSetup() {
+  syncActiveSessionId(null);
+  selfTypesGrid.querySelectorAll("input[type=checkbox]").forEach((cb) => {
+    cb.checked = false;
+    cb.closest(".challenge-type-chip")?.classList.remove("checked");
+  });
+  selfRangeSelect.value = "custom";
+  selfCustomMin.value = 1;
+  selfCustomMax.value = 604;
+  showHideSelfCustomRange();
+  selfTimerSelect.value = "30";
+  selfCountSelect.value = "5";
+
+  selfResultsSection.style.display = "none";
+  selfPlaySection.style.display = "none";
+  selfSetupSection.style.display = "block";
+  refreshSelfStartAvailability();
+}
+selfBackToSetupBtn.addEventListener("click", resetSelfToSetup);
+
+// -------- init --------
+renderSelfTypesGrid();
+resetSelfToSetup();
 
 generateBtn.addEventListener("click", generateCard);
 
@@ -3054,37 +3527,6 @@ qTypeSelect.addEventListener("change", () => {
   });
 });
 
-mistakeReviewToggle.addEventListener("change", async () => {
-  if (!mistakeReviewToggle.checked) {
-    mistakeReviewActive = false;
-    mistakeReviewHint.textContent = "سيتم اختيار الأسئلة من الصفحات التي أخطأت فيها فقط، وتُزال الصفحة تلقائيًا بعد إتقانها.";
-    mistakeReviewRow.classList.remove("active");
-    await refreshGenerationAvailability();
-    return;
-  }
-
-  if (!activeSessionId) {
-    mistakeReviewToggle.checked = false;
-    return;
-  }
-
-  mistakeReviewToggle.disabled = true;
-  const pages = (typeof fetchSessionWrongPages === "function") ? await fetchSessionWrongPages(activeSessionId) : [];
-  mistakeReviewToggle.disabled = false;
-
-  if (!pages.length) {
-    mistakeReviewToggle.checked = false;
-    alert("لا توجد إجابات خاطئة في هذه الجلسة بعد.");
-    return;
-  }
-
-  mistakeReviewActive = true;
-  mistakeReviewPages = pages;
-  mistakeReviewHint.textContent = `عدد صفحات المراجعة: ${pages.length}. ستُزال كل صفحة تلقائيًا فور إتقانها.`;
-  mistakeReviewRow.classList.add("active");
-  await refreshGenerationAvailability();
-});
-
 viewPageInQuranBtn.addEventListener("click", () => {
   if (currentPage == null) return;
   if (typeof switchView === "function") switchView("quran");
@@ -3114,12 +3556,6 @@ function applyRemoteSettings(settings) {
   if (settings.custom_max != null) customMaxEl.value = settings.custom_max;
   showHideCustomRange();
   settingsSyncReady = true;
-  // No refreshQuestionTypeAvailability() call here — this can run
-  // before or after the session-setup onAuthChange handler below
-  // finishes resolving activeSessionId (both fire off the same auth
-  // event), and that handler always calls it once the session range
-  // is actually known, so calling it here too just risked a brief
-  // "no range" flash if this happened to resolve first.
 }
 
 [qTypeSelect, timerSelect, rangeSelect, customMinEl, customMaxEl].forEach((el) => {
@@ -3143,32 +3579,6 @@ if (typeof onAuthChange === "function") {
       }
     } else {
       settingsSyncReady = true;
-    }
-  });
-
-  onAuthChange(async (user) => {
-    if (user && typeof ensureActiveSession === "function") {
-      const active = await ensureActiveSession();
-      activeSessionId = active?.id ?? null;
-      activeSessionRangeMin = active?.rangeMin ?? null;
-      activeSessionRangeMax = active?.rangeMax ?? null;
-      activeSessionTitle = active?.title ?? null;
-      showSessionRangeUI(activeSessionRangeMin, activeSessionRangeMax);
-      setTopbarSessionName(activeSessionTitle);
-
-      // Brand new account (or every session got deleted) — rather
-      // than silently default them into a full 1–604 session they
-      // never actually chose, prompt them straight into picking
-      // their own first range.
-      if (!active && typeof openCreateSessionModal === "function") {
-        openCreateSessionModal();
-      }
-    } else {
-      activeSessionId = null;
-      activeSessionRangeMin = null;
-      activeSessionRangeMax = null;
-      activeSessionTitle = null;
-      showGuestRangeUI();
     }
     await refreshQuestionTypeAvailability();
   });
