@@ -34,8 +34,8 @@ const deleteSessionBtn = document.getElementById("deleteSessionBtn");
 const leaderboardBody = document.getElementById("leaderboardBody");
 
 const logoutBtn = document.getElementById("logoutBtn");
-const profileLogoutSection = document.getElementById("profileLogoutSection");
-const profileLoginSection = document.getElementById("profileLoginSection");
+const profileGuestNotice = document.getElementById("profileGuestNotice");
+const profileSignedInSections = document.getElementById("profileSignedInSections");
 const profileLoginBtn = document.getElementById("profileLoginBtn");
 
 // -------- dark mode --------
@@ -369,8 +369,8 @@ onAuthChange(async (user) => {
   if (user) {
     guestActions.style.display = "none";
     userActions.style.display = "flex";
-    profileLogoutSection.style.display = "block";
-    profileLoginSection.style.display = "none";
+    profileSignedInSections.style.display = "block";
+    profileGuestNotice.style.display = "none";
 
     const stats = await fetchUserStats();
     updateLevelBadge(stats?.xp || 0);
@@ -382,8 +382,8 @@ onAuthChange(async (user) => {
   } else {
     guestActions.style.display = "flex";
     userActions.style.display = "none";
-    profileLogoutSection.style.display = "none";
-    profileLoginSection.style.display = "block";
+    profileSignedInSections.style.display = "none";
+    profileGuestNotice.style.display = "block";
     userLevelBadge.style.display = "none";
     lastKnownLevel = null;
     mySessions = [];
@@ -788,6 +788,8 @@ const profileAchievementsBody = document.getElementById("profileAchievementsBody
 const profileRankLadder = document.getElementById("profileRankLadder");
 
 async function loadProfileView() {
+  if (!currentUser) return; // profileGuestNotice is shown instead — see onAuthChange above
+
   profileAchievementsBody.innerHTML = '<div class="status">جاري التحميل...</div>';
 
   const [stats, catalog, earned, pageStats, dailyActivity] = await Promise.all([
@@ -921,6 +923,7 @@ function progressSummaryHtml(pageStats, extra) {
 
 // -------- friends view: my code, add a friend, requests, friend list --------
 const friendsBody = document.getElementById("friendsBody");
+const friendsGuestNotice = document.getElementById("friendsGuestNotice");
 const friendsListSection = document.getElementById("friendsListSection");
 const friendProfileSection = document.getElementById("friendProfileSection");
 const friendProfileBackBtn = document.getElementById("friendProfileBackBtn");
@@ -975,6 +978,14 @@ function buildFriendsBodyHtml() {
 }
 
 async function loadFriendsModal() {
+  if (!currentUser) {
+    friendsGuestNotice.style.display = "block";
+    friendsBody.style.display = "none";
+    friendsBody.innerHTML = "";
+    return;
+  }
+  friendsGuestNotice.style.display = "none";
+  friendsBody.style.display = "block";
   friendsBody.innerHTML = '<div class="status">جاري التحميل...</div>';
 
   const [code, incoming, outgoing, friends] = await Promise.all([

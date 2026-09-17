@@ -254,72 +254,87 @@
          ================================================================== -->
     <div id="view-profile" class="app-view">
 
-      <div class="view-card">
-        <div class="view-head">
-          <div class="view-title">👤 ملفي الشخصي</div>
-        </div>
-        <div id="profileLevelSummary"></div>
-        <div id="profileProgressSummary"></div>
-      </div>
-
-      <div class="view-card">
-        <div class="view-head"><div class="view-title">📈 التقدم</div></div>
-        <div class="section-label">خريطة تغطية الصفحات (604 صفحة)</div>
-        <div id="profileHeatmap" class="heatmap-grid"></div>
-        <div class="section-label">النشاط اليومي (آخر 30 يومًا)</div>
-        <div id="profileStreakStrip" class="streak-strip"></div>
-        <div id="profileStreakNumbers" class="streak-numbers"></div>
-      </div>
-
-      <div class="view-card">
-        <div class="view-head"><div class="view-title">🎖️ الإنجازات</div></div>
-        <div id="profileAchievementsBody" class="stats-body">
-          <div class="status">جاري التحميل...</div>
-        </div>
-      </div>
-
-      <div class="view-card">
-        <div class="view-head"><div class="view-title">🏅 سلّم الرتب</div></div>
-        <div id="profileRankLadder"></div>
-      </div>
-
-      <div class="view-card">
-        <div class="view-head"><div class="view-title">📊 الجلسات</div></div>
-        <div class="sessions-table-wrap">
-          <table class="sessions-table">
-            <thead>
-              <tr>
-                <th>النطاق</th>
-                <th>الأسئلة</th>
-                <th>الدقة</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="sessionChips"></tbody>
-          </table>
-        </div>
-
-        <div id="statsBody" class="stats-body">
-          <div class="status">جاري التحميل...</div>
-        </div>
-
-        <div id="sessionActions" class="session-actions" style="display:none;">
-          <label class="toggle-row">
-            <input type="checkbox" id="sessionPublicToggle">
-            أضف هذه الجلسة إلى لوحة الصدارة العامة
-          </label>
-          <div class="session-actions-buttons">
-            <button id="deleteSessionBtn" class="btn small ghost danger">🗑 حذف هذه الجلسة</button>
+      <!-- Guest-only — replaces the entire profile with a single
+           benefits notice + login button instead of showing every
+           card empty/zeroed out. Toggled in auth-ui.js's onAuthChange
+           alongside #profileSignedInSections below. -->
+      <div id="profileGuestNotice" class="view-card" style="display:none; text-align:center;">
+        <div class="challenge-type-intro">
+          <div class="challenge-type-intro-icon">🔒</div>
+          <div class="challenge-type-intro-desc">
+            سجّل الدخول لتتبّع مستواك ونقاط خبرتك، تجمع الإنجازات، تشوف خريطة تغطيتك لصفحات المصحف ونشاطك اليومي، تحتفظ بسجل اختباراتك الذاتية، وتظهر بلوحة الصدارة.
           </div>
         </div>
-        <div class="hint" style="margin-top:10px; text-align:center;">لإنشاء اختبار ذاتي جديد، من ⚔️ التحديات ← ذاتي.</div>
+        <button id="profileLoginBtn" class="btn primary" style="width: 100%; margin-top:14px;">تسجيل الدخول</button>
       </div>
 
-      <div id="profileLogoutSection" class="view-card" style="text-align:center;">
-        <button id="logoutBtn" class="btn small ghost">تسجيل الخروج</button>
-      </div>
-      <div id="profileLoginSection" class="view-card" style="text-align:center; display:none;">
-        <button id="profileLoginBtn" class="btn primary" style="width: 100%;">تسجيل الدخول</button>
+      <div id="profileSignedInSections">
+
+        <div class="view-card">
+          <div class="view-head">
+            <div class="view-title">👤 ملفي الشخصي</div>
+          </div>
+          <div id="profileLevelSummary"></div>
+          <div id="profileProgressSummary"></div>
+        </div>
+
+        <div class="view-card">
+          <div class="view-head"><div class="view-title">📈 التقدم</div></div>
+          <div class="section-label">خريطة تغطية الصفحات (604 صفحة)</div>
+          <div id="profileHeatmap" class="heatmap-grid"></div>
+          <div class="section-label">النشاط اليومي (آخر 30 يومًا)</div>
+          <div id="profileStreakStrip" class="streak-strip"></div>
+          <div id="profileStreakNumbers" class="streak-numbers"></div>
+        </div>
+
+        <div class="view-card">
+          <div class="view-head"><div class="view-title">🎖️ الإنجازات</div></div>
+          <div id="profileAchievementsBody" class="stats-body">
+            <div class="status">جاري التحميل...</div>
+          </div>
+        </div>
+
+        <div class="view-card">
+          <div class="view-head"><div class="view-title">🏅 سلّم الرتب</div></div>
+          <div id="profileRankLadder"></div>
+        </div>
+
+        <div class="view-card">
+          <div class="view-head"><div class="view-title">📊 الجلسات</div></div>
+          <div class="sessions-table-wrap">
+            <table class="sessions-table">
+              <thead>
+                <tr>
+                  <th>النطاق</th>
+                  <th>الأسئلة</th>
+                  <th>الدقة</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="sessionChips"></tbody>
+            </table>
+          </div>
+
+          <div id="statsBody" class="stats-body">
+            <div class="status">جاري التحميل...</div>
+          </div>
+
+          <div id="sessionActions" class="session-actions" style="display:none;">
+            <label class="toggle-row">
+              <input type="checkbox" id="sessionPublicToggle">
+              أضف هذه الجلسة إلى لوحة الصدارة العامة
+            </label>
+            <div class="session-actions-buttons">
+              <button id="deleteSessionBtn" class="btn small ghost danger">🗑 حذف هذه الجلسة</button>
+            </div>
+          </div>
+          <div class="hint" style="margin-top:10px; text-align:center;">لإنشاء اختبار ذاتي جديد، من ⚔️ التحديات ← ذاتي.</div>
+        </div>
+
+        <div id="profileLogoutSection" class="view-card" style="text-align:center;">
+          <button id="logoutBtn" class="btn small ghost">تسجيل الخروج</button>
+        </div>
+
       </div>
 
     </div>
@@ -335,6 +350,17 @@
         <div class="view-head">
           <div class="view-title">👥 أصدقائي</div>
         </div>
+
+        <!-- Guest-only — loadFriendsModal() in auth-ui.js shows this
+             instead of fetching/rendering the (account-only) friend
+             code, requests, and friends list. -->
+        <div id="friendsGuestNotice" style="display:none;">
+          <div class="challenge-type-intro">
+            <div class="challenge-type-intro-icon">🔒</div>
+            <div class="challenge-type-intro-desc">سجّل الدخول لإضافة أصدقاء ومشاهدة ملفاتهم الشخصية.</div>
+          </div>
+        </div>
+
         <div id="friendsBody" class="stats-body">
           <div class="status">جاري التحميل...</div>
         </div>
