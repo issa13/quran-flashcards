@@ -30,7 +30,7 @@
 <body>
   <div class="wrap">
 
-    <!-- Compact top bar: auth state (left), session name (center), theme (right) -->
+    <!-- Compact top bar: auth state (left), session name (right) -->
     <div class="topbar">
       <div id="guestActions" class="topbar-auth">
         <button id="loginOpenBtn" class="btn small">تسجيل الدخول</button>
@@ -39,7 +39,6 @@
         <span id="userLevelBadge" class="level-badge" style="display:none;"></span>
       </div>
       <div id="topbarSessionName" class="topbar-session-name"></div>
-      <button id="themeToggleBtn" type="button" class="btn small ghost theme-toggle" aria-label="تبديل الوضع الليلي">🌙 داكن</button>
     </div>
 
     <!-- ==================================================================
@@ -254,6 +253,14 @@
          ================================================================== -->
     <div id="view-profile" class="app-view">
 
+      <!-- Always visible — theme has nothing to do with sign-in state,
+           so it sits above the guest notice / signed-in sections
+           below rather than inside either of them. -->
+      <div class="view-card">
+        <div class="view-head"><div class="view-title">🎨 المظهر</div></div>
+        <button id="themeToggleBtn" type="button" class="btn small ghost theme-toggle" style="width:100%; margin-top:8px;" aria-label="تبديل الوضع الليلي">🌙 داكن</button>
+      </div>
+
       <!-- Guest-only — replaces the entire profile with a single
            benefits notice + login button instead of showing every
            card empty/zeroed out. Toggled in auth-ui.js's onAuthChange
@@ -445,13 +452,13 @@
       <div class="view-card">
 
         <div class="challenge-mode-toggle" id="challengeModeToggle">
-          <button type="button" class="challenge-mode-btn active" data-mode="offline">📱 محلي</button>
+          <button type="button" class="challenge-mode-btn" data-mode="offline">📱 محلي</button>
           <button type="button" class="challenge-mode-btn" data-mode="online">🌐 مباشر</button>
-          <button type="button" class="challenge-mode-btn" data-mode="self">📝 ذاتي</button>
+          <button type="button" class="challenge-mode-btn active" data-mode="self">📝 ذاتي</button>
         </div>
 
         <!-- ================= OFFLINE MODE (existing, unchanged) ================= -->
-        <div id="challengeOfflineWrap">
+        <div id="challengeOfflineWrap" style="display:none;">
 
         <!-- ---- 1) setup ---- -->
         <div id="challengeSetupSection">
@@ -765,7 +772,7 @@
              next block starts. Signed-in users get a real, resumable
              session (survives a refresh); guests play fully
              client-side/ephemeral, same as محلي. ================= -->
-        <div id="challengeSelfWrap" style="display:none;">
+        <div id="challengeSelfWrap">
 
           <!-- ---- 1) setup ---- -->
           <div id="selfSetupSection">

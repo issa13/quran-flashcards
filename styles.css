@@ -162,6 +162,19 @@ body::before {
   padding: 18px;
 }
 
+/* #profileSignedInSections wraps all the profile's own .view-cards
+   (added so a guest gets a single notice card instead) — it needs the
+   same flex column + gap .app-view gives its direct children,
+   otherwise those cards lose their spacing and sit flush against
+   each other. */
+#profileSignedInSections {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
 .view-head {
   display: flex;
   align-items: center;

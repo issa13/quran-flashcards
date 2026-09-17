@@ -1766,6 +1766,7 @@ async function nextChallengeQuestion() {
 function showChallengeTypeIntro(type) {
   challengeQuestionArea.style.display = "none";
   challengeTypeIntro.style.display = "block";
+  challengeTypeIntro.scrollIntoView({ behavior: "smooth", block: "start" });
   challengeTypeIntroLabel.textContent = getTypeLabel(type);
   challengeTypeIntroDesc.textContent = getTypeDescription(type);
   const blockSize = challengeQueue.filter((t) => t === type).length;
@@ -1785,6 +1786,8 @@ challengeTypeIntroContinueBtn.addEventListener("click", async () => {
 // falls back through nextChallengeQuestion() so a type-intro still
 // shows if the failure happened to be the last question of its block.
 async function proceedToChallengeQuestion() {
+  challengeFlashcard.scrollIntoView({ behavior: "smooth", block: "start" });
+
   challengeQuestionIndex++;
   const type = challengeQueue.shift();
   challengeTypeBlockPosition = (type === challengeLastShownType) ? challengeTypeBlockPosition + 1 : 1;
@@ -2521,6 +2524,8 @@ async function onDuelStateChangedDuringPlay(duel) {
 }
 
 async function loadDuelCurrentQuestion(duel) {
+  duelFlashcard.scrollIntoView({ behavior: "smooth", block: "start" });
+
   duelAnswered = false;
   duelRoundStatus.style.display = "none";
   stopDuelTimer();
@@ -3331,6 +3336,7 @@ async function nextSelfQuestion() {
 function showSelfBlockPause(nextType) {
   selfQuestionArea.style.display = "none";
   selfBlockPause.style.display = "block";
+  selfBlockPause.scrollIntoView({ behavior: "smooth", block: "start" });
   selfBlockPauseLabel.textContent = selfLastShownType
     ? `أكملت بلوكًا من نوع: ${getTypeLabel(selfLastShownType)}`
     : "جاهز للبدء";
@@ -3350,6 +3356,8 @@ selfBlockContinueBtn.addEventListener("click", async () => {
 // failure Tests/محلي mode can hit), and discards the slot on
 // persistent failure rather than getting the quiz stuck.
 async function proceedToSelfQuestion() {
+  selfFlashcard.scrollIntoView({ behavior: "smooth", block: "start" });
+
   const type = selfQueue.shift();
   selfBlockPosition = (type === selfLastShownType) ? selfBlockPosition + 1 : 1;
   selfLastShownType = type;
@@ -3581,6 +3589,9 @@ if (typeof onAuthChange === "function") {
       settingsSyncReady = true;
     }
     await refreshQuestionTypeAvailability();
+    if (challengeSelfWrap.style.display !== "none" && typeof enterSelfChallengeMode === "function") {
+      await enterSelfChallengeMode();
+    }
   });
 } else {
   settingsSyncReady = true;

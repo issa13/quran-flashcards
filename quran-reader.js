@@ -550,6 +550,44 @@ quranPageInput.addEventListener("keydown", (e) => {
 quranPrevBtn.addEventListener("click", () => quranGoToPage(currentQuranPage - 1));
 quranNextBtn.addEventListener("click", () => quranGoToPage(currentQuranPage + 1));
 
+// -------- swipe navigation (mobile) --------
+// Swipe right = "رجعت لورا" (same direction as ▶ quranPrevBtn),
+// swipe left = "الصفحة يلي بعدها" (same direction as ◀ quranNextBtn).
+(function setupQuranSwipeNav() {
+  const SWIPE_MIN_DISTANCE = 50; // px — how far counts as an intentional swipe, not a tap
+  const SWIPE_MAX_VERTICAL = 60; // px — keeps a mostly-vertical gesture from triggering a page turn
+
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchActive = false;
+
+  quranPageViewportEl.addEventListener("touchstart", (e) => {
+    touchActive = e.touches.length === 1;
+    if (!touchActive) return;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }, { passive: true });
+
+  quranPageViewportEl.addEventListener("touchend", (e) => {
+    if (!touchActive) return;
+    touchActive = false;
+
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+
+    const deltaX = touch.clientX - touchStartX;
+    const deltaY = touch.clientY - touchStartY;
+    if (Math.abs(deltaY) > SWIPE_MAX_VERTICAL) return;
+    if (Math.abs(deltaX) < SWIPE_MIN_DISTANCE) return;
+
+    if (deltaX > 0) {
+      if (currentQuranPage > 1) quranGoToPage(currentQuranPage - 1);
+    } else {
+      if (currentQuranPage < 604) quranGoToPage(currentQuranPage + 1);
+    }
+  }, { passive: true });
+})();
+
 quranJuzSelect.addEventListener("change", () => {
   const num = parseInt(quranJuzSelect.value, 10);
   quranJuzSelect.value = "";
@@ -891,6 +929,52 @@ let quranRangeIndex = -1;
 let quranRangeAudioEl = null;
 let quranRangePaused = false;
 
+// Sliding preload window — while ayah N plays, ayahs N+1..N+3 are
+// already downloading in the background (Audio elements created and
+// .load()-ed, but not played), so by the time playback reaches each
+// one it can start immediately instead of waiting on a fresh network
+// request. This is what actually closes the gap between ayahs; a
+// window (rather than "just the next one") gives a buffer against a
+// slow connection, and staying small (rather than the whole range)
+// avoids downloading hundreds of files the person may never reach.
+const QURAN_RANGE_PRELOAD_AHEAD = 3;
+let quranRangePreloadCache = new Map(); // queue index -> Audio element
+
+function quranRangeUrlForIndex(index) {
+  const step = quranRangeQueue[index];
+  if (!step) return null;
+  return fetchQuranAyahAudioUrl(`${step.surah}:${step.ayah}`, quranSelectedReciter);
+}
+
+function quranRangeClearPreload() {
+  quranRangePreloadCache.forEach((audioEl) => { audioEl.pause(); audioEl.src = ""; });
+  quranRangePreloadCache.clear();
+}
+
+// Called right after starting playback of `fromIndex` — tops up the
+// preload window to fromIndex+1..fromIndex+AHEAD, and drops anything
+// that's now behind us (already played, or skipped) so the cache
+// doesn't grow across a long range.
+function quranRangeEnsurePreload(fromIndex) {
+  for (const [idx, audioEl] of quranRangePreloadCache) {
+    if (idx <= fromIndex) {
+      audioEl.pause();
+      audioEl.src = "";
+      quranRangePreloadCache.delete(idx);
+    }
+  }
+  for (let offset = 1; offset <= QURAN_RANGE_PRELOAD_AHEAD; offset++) {
+    const idx = fromIndex + offset;
+    if (idx >= quranRangeQueue.length || quranRangePreloadCache.has(idx)) continue;
+    const url = quranRangeUrlForIndex(idx);
+    if (!url) continue;
+    const audioEl = new Audio(url);
+    audioEl.preload = "auto";
+    audioEl.load();
+    quranRangePreloadCache.set(idx, audioEl);
+  }
+}
+
 async function quranPlayNextInRange() {
   quranRangeIndex += 1;
   if (quranRangeIndex >= quranRangeQueue.length) {
@@ -905,14 +989,26 @@ async function quranPlayNextInRange() {
     `(${toArabicDigits(quranRangeIndex + 1)}/${toArabicDigits(quranRangeQueue.length)})`;
 
   try {
-    const url = await fetchQuranAyahAudioUrl(`${step.surah}:${step.ayah}`, quranSelectedReciter);
-    if (!url) throw new Error("no audio url");
     if (quranRangeAudioEl) { quranRangeAudioEl.pause(); quranRangeAudioEl = null; }
-    quranRangeAudioEl = new Audio(url);
+
+    // Reuse whatever the preload window already started downloading
+    // for this ayah — the whole point being that it's usually already
+    // buffered by the time we get here, so play() starts instantly.
+    let audioEl = quranRangePreloadCache.get(quranRangeIndex);
+    quranRangePreloadCache.delete(quranRangeIndex);
+    if (!audioEl) {
+      const url = quranRangeUrlForIndex(quranRangeIndex);
+      if (!url) throw new Error("no audio url");
+      audioEl = new Audio(url);
+    }
+
+    quranRangeAudioEl = audioEl;
     quranRangeAudioEl.addEventListener("ended", () => {
       if (!quranRangePaused) quranPlayNextInRange();
     });
     await quranRangeAudioEl.play();
+
+    quranRangeEnsurePreload(quranRangeIndex);
   } catch (e) {
     quranListenNowPlaying.textContent = "تعذّر تشغيل أحد المقاطع، جارٍ المتابعة...";
     quranPlayNextInRange(); // skip the failed ayah and continue
@@ -921,6 +1017,7 @@ async function quranPlayNextInRange() {
 
 function quranRangeStop() {
   if (quranRangeAudioEl) { quranRangeAudioEl.pause(); quranRangeAudioEl.currentTime = 0; quranRangeAudioEl = null; }
+  quranRangeClearPreload();
   quranRangeQueue = [];
   quranRangeIndex = -1;
   quranRangePaused = false;
@@ -960,6 +1057,7 @@ quranListenStartBtn.addEventListener("click", async () => {
   quranRangeQueue = await buildQuranRangeQueue(fromSurah, fromAyah, toSurah, toAyah);
   quranRangeIndex = -1;
   quranRangePaused = false;
+  quranRangeClearPreload();
   quranListenPlayer.style.display = "block";
   quranPlayNextInRange();
 });
