@@ -383,7 +383,7 @@ onAuthChange(async (user) => {
   if (user) {
     guestActions.style.display = "none";
     userActions.style.display = "flex";
-    profileSignedInSections.style.display = "block";
+    profileSignedInSections.style.display = "flex";
     profileGuestNotice.style.display = "none";
 
     const stats = await fetchUserStats();

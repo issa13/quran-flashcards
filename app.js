@@ -44,6 +44,7 @@ function juzsInRange(minP, maxP) {
 
 // DOM
 const flashcard = document.getElementById("flashcard");
+const homeFlashcardWrap = document.getElementById("homeFlashcardWrap");
 const generateBtn = document.getElementById("generateBtn");
 const qText = document.getElementById("qText");
 const mcqChoicesEl = document.getElementById("mcqChoices");
@@ -479,13 +480,13 @@ async function checkGenerationBlock(type, minP, maxP) {
     }
   }
 
-  // "previous"/"listenNext" pick any ayah in range as the question, so
-  // the total ayah count in range is the meaningful pool size here.
-  if (type === "previous" || type === "listenNext") {
+  // "previous"/"next"/"listenNext" pick any ayah in range as the
+  // question, so the total ayah count in range is the meaningful pool
+  // size here.
+  if (type === "previous" || type === "next" || type === "listenNext") {
     const available = await ayahsCountInRange(minP, maxP);
     if (available < MIN_MCQ_ANSWERS) {
-      const label = type === "previous" ? "خمن الآية السابقة" : "استمع ثم خمن الآية التالية";
-      return rangeTooNarrowMessage(label, available, "آية", "آيات");
+      return rangeTooNarrowMessage(getTypeLabel(type), available, "آية", "آيات");
     }
   }
 
@@ -551,7 +552,7 @@ function setOptionAvailability(value, available) {
 // Hides/disables question-type options that can't produce enough
 // valid answers in the current range: pageNumber/surah/juz/first/last
 // need MIN_MCQ_ANSWERS distinct values; ayahCount needs strictly more
-// than that many pages; previous/listenNext need MIN_MCQ_ANSWERS
+// than that many pages; previous/next/listenNext need MIN_MCQ_ANSWERS
 // ayahs in range; ayahNumber needs strictly more than
 // MIN_AYAHNUMBER_ANSWERS ayahs in range; the adjacent-page types need
 // more than one page. Falls back the selection to whichever option is
@@ -582,6 +583,7 @@ async function refreshQuestionTypeAvailability() {
   setOptionAvailability("last", pageCount >= MIN_MCQ_ANSWERS);
   setOptionAvailability("ayahCount", pageCount > MIN_MCQ_ANSWERS);
   setOptionAvailability("previous", ayahCount >= MIN_MCQ_ANSWERS);
+  setOptionAvailability("next", ayahCount >= MIN_MCQ_ANSWERS);
   setOptionAvailability("listenNext", ayahCount >= MIN_MCQ_ANSWERS);
   setOptionAvailability("ayahNumber", ayahCount > MIN_AYAHNUMBER_ANSWERS);
 
@@ -844,6 +846,7 @@ function getTypeDescription(type) {
     case "first": return "سيظهر لك آية من نفس الصفحة، والمطلوب أن تتذكر الآية الأولى في هذه الصفحة.";
     case "last": return "سيظهر لك آية من نفس الصفحة، والمطلوب أن تتذكر الآية الأخيرة في هذه الصفحة.";
     case "previous": return "سيظهر لك آية، والمطلوب أن تتذكر الآية التي تسبقها في نفس الصفحة.";
+    case "next": return "سيظهر لك آية، والمطلوب أن تتذكر الآية التي تليها مباشرة في نفس الصفحة.";
     case "surah": return "سيظهر لك آية، والمطلوب أن تحدد اسم السورة التي تنتمي لها.";
     case "pageNumber": return "سيظهر لك آية، والمطلوب أن تخمّن رقم الصفحة.";
     case "ayahCount": return "السؤال هو أول آية في الصفحة، والمطلوب أن تخمّن عدد آيات الصفحة.";
@@ -863,6 +866,7 @@ function getTypeLabel(type) {
     case "first": return "خمن الآية الأولى بالصفحة";
     case "last": return "خمن الآية الأخيرة بالصفحة";
     case "previous": return "خمن الآية السابقة";
+    case "next": return "خمن الآية التالية";
     case "surah": return "خمن السورة";
     case "pageNumber": return "خمن رقم الصفحة";
     case "ayahCount": return "خمن كم عدد آيات الصفحة؟";
@@ -913,6 +917,11 @@ function pickQAFromPage(ayahs, type, page) {
   if (type === "previous") {
     const idx = randInt(1, ayahs.length - 1);
     return { q: clean(ayahs[idx].text), a: clean(ayahs[idx - 1].text), kind: "text", qAyahNumber: ayahs[idx].number };
+  }
+
+  if (type === "next") {
+    const idx = randInt(0, ayahs.length - 2);
+    return { q: clean(ayahs[idx].text), a: clean(ayahs[idx + 1].text), kind: "text", qAyahNumber: ayahs[idx].number };
   }
 
   if (type === "surah") {
@@ -1238,11 +1247,11 @@ function finishQuestion(isCorrect) {
 
 // -------- generate --------
 async function generateCard() {
-  // Scroll the question back into view immediately on click — without
-  // this, someone who scrolled down to read feedback/explanation on
-  // the previous question would have to manually scroll back up to
-  // see the new one every single time.
-  flashcard.scrollIntoView({ behavior: "smooth", block: "start" });
+  // Scroll the whole flashcard-wrap (range/score header, timer bar,
+  // and the card) back into view on click — without this, someone who
+  // scrolled down to read feedback on the previous question would
+  // have to manually scroll back up to see the new one every time.
+  homeFlashcardWrap.scrollIntoView({ behavior: "smooth", block: "start" });
 
   try {
     const type = qTypeSelect.value;
@@ -1372,7 +1381,7 @@ async function generateCard() {
 // ============================================================
 
 const CHALLENGE_TYPES = [
-  "first", "last", "previous", "surah", "pageNumber", "ayahCount",
+  "first", "last", "previous", "next", "surah", "pageNumber", "ayahCount",
   "nextPageFirst", "prevPageFirst", "pageEndToNextFirst", "pageStartToPrevLast",
   "juz", "ayahNumber", "listenNext",
 ];
@@ -1407,6 +1416,7 @@ const challengeTypeIntroContinueBtn = document.getElementById("challengeTypeIntr
 const challengeQuestionArea = document.getElementById("challengeQuestionArea");
 const challengeProgressBar = document.getElementById("challengeProgressBar");
 const challengeFlashcard = document.getElementById("challengeFlashcard");
+const challengeFlashcardWrap = document.getElementById("challengeFlashcardWrap");
 const challengeCardHelp = document.getElementById("challengeCardHelp");
 const challengeQText = document.getElementById("challengeQText");
 const challengeMcqChoices = document.getElementById("challengeMcqChoices");
@@ -1559,11 +1569,10 @@ async function challengeTypeBlockMessage(type, minP, maxP) {
     const available = maxP - minP + 1;
     if (available <= MIN_MCQ_ANSWERS) return rangeTooNarrowMessage("خمن كم عدد آيات الصفحة", available, "صفحة", "صفحات", MIN_MCQ_ANSWERS + 1);
   }
-  if (type === "previous" || type === "listenNext") {
+  if (type === "previous" || type === "next" || type === "listenNext") {
     const available = await ayahsCountInRange(minP, maxP);
     if (available < MIN_MCQ_ANSWERS) {
-      const label = type === "previous" ? "خمن الآية السابقة" : "استمع ثم خمن الآية التالية";
-      return rangeTooNarrowMessage(label, available, "آية", "آيات");
+      return rangeTooNarrowMessage(getTypeLabel(type), available, "آية", "آيات");
     }
   }
   if (type === "ayahNumber") {
@@ -1780,7 +1789,7 @@ challengeTypeIntroContinueBtn.addEventListener("click", async () => {
 // falls back through nextChallengeQuestion() so a type-intro still
 // shows if the failure happened to be the last question of its block.
 async function proceedToChallengeQuestion() {
-  challengeFlashcard.scrollIntoView({ behavior: "smooth", block: "start" });
+  challengeFlashcardWrap.scrollIntoView({ behavior: "smooth", block: "start" });
 
   challengeQuestionIndex++;
   const type = challengeQueue.shift();
@@ -1989,6 +1998,7 @@ const duelTypeIntroCountdown = document.getElementById("duelTypeIntroCountdown")
 const duelQuestionArea = document.getElementById("duelQuestionArea");
 const duelProgressBar = document.getElementById("duelProgressBar");
 const duelFlashcard = document.getElementById("duelFlashcard");
+const duelFlashcardWrap = document.getElementById("duelFlashcardWrap");
 const duelCardHelp = document.getElementById("duelCardHelp");
 const duelQText = document.getElementById("duelQText");
 const duelMcqChoices = document.getElementById("duelMcqChoices");
@@ -2518,7 +2528,7 @@ async function onDuelStateChangedDuringPlay(duel) {
 }
 
 async function loadDuelCurrentQuestion(duel) {
-  duelFlashcard.scrollIntoView({ behavior: "smooth", block: "start" });
+  duelFlashcardWrap.scrollIntoView({ behavior: "smooth", block: "start" });
 
   duelAnswered = false;
   duelRoundStatus.style.display = "none";
@@ -2967,6 +2977,7 @@ const selfBlockContinueBtn = document.getElementById("selfBlockContinueBtn");
 const selfQuestionArea = document.getElementById("selfQuestionArea");
 const selfProgressBar = document.getElementById("selfProgressBar");
 const selfFlashcard = document.getElementById("selfFlashcard");
+const selfFlashcardWrap = document.getElementById("selfFlashcardWrap");
 const selfCardHelp = document.getElementById("selfCardHelp");
 const selfQText = document.getElementById("selfQText");
 const selfMcqChoices = document.getElementById("selfMcqChoices");
@@ -3350,7 +3361,7 @@ selfBlockContinueBtn.addEventListener("click", async () => {
 // failure Tests/محلي mode can hit), and discards the slot on
 // persistent failure rather than getting the quiz stuck.
 async function proceedToSelfQuestion() {
-  selfFlashcard.scrollIntoView({ behavior: "smooth", block: "start" });
+  selfFlashcardWrap.scrollIntoView({ behavior: "smooth", block: "start" });
 
   const type = selfQueue.shift();
   selfBlockPosition = (type === selfLastShownType) ? selfBlockPosition + 1 : 1;

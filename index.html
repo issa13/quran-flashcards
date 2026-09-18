@@ -7,7 +7,7 @@
   <script>
     // Change this value whenever local files are deployed so browsers fetch
     // the new HTML dependencies and Quran data instead of stale cache entries.
-    window.QF_ASSET_VERSION = "2026-09-17";
+    window.QF_ASSET_VERSION = "2026-09-18";
 
     // Applied before first paint so switching themes never flashes
     // the wrong one. auth-ui.js's toggle button reads/writes the same
@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@400;700&family=Tajawal:wght@400;500;700;900&family=Amiri+Quran&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=2026-09-17">
+  <link rel="stylesheet" href="styles.css?v=2026-09-18">
 </head>
 
 <body>
@@ -70,23 +70,22 @@
          ================================================================== -->
     <div id="view-home" class="app-view">
 
-      <!-- Compact header: range glance + score/combo, one row. Full
-           range control is in ⚙️ الإعدادات below. -->
-      <div class="quiz-header-row">
-        <div id="homeRangeChip" class="range-chip">📖 —</div>
-        <div class="score-combo-wrap">
-          <div id="scoreBox" class="score">النتيجة: 0 / 0</div>
-          <div id="comboBox" class="combo-box" style="display:none;"></div>
+      <!-- Flashcard — bundles the header (range+score), the timer bar,
+           and the question card together so a smooth-scroll-into-view
+           brings all of it into frame, not just the bare card. -->
+      <div id="homeFlashcardWrap" class="flashcard-wrap full">
+        <div class="quiz-header-row">
+          <div id="homeRangeChip" class="range-chip">📖 —</div>
+          <div class="score-combo-wrap">
+            <div id="scoreBox" class="score">النتيجة: 0 / 0</div>
+            <div id="comboBox" class="combo-box" style="display:none;"></div>
+          </div>
         </div>
-      </div>
 
-      <!-- Progress -->
-      <div class="progress-wrap" aria-label="شريط المؤقت">
-        <div id="progressBar" class="progress-bar"></div>
-      </div>
+        <div class="progress-wrap" aria-label="شريط المؤقت">
+          <div id="progressBar" class="progress-bar"></div>
+        </div>
 
-      <!-- Flashcard -->
-      <div class="flashcard-wrap">
         <div id="flashcard" class="mcq-card">
           <div id="cardModeTitle" class="title">السؤال</div>
           <div id="cardHelp" class="helper">اختر نوع السؤال ونطاق الصفحات ثم اضغط "سؤال جديد".</div>
@@ -122,6 +121,7 @@
                   <option value="first">خمن الآية الأولى بالصفحة</option>
                   <option value="last">خمن الآية الأخيرة بالصفحة</option>
                   <option value="previous">خمن الآية السابقة</option>
+                  <option value="next">خمن الآية التالية</option>
                   <option value="surah">خمن السورة</option>
                   <option value="pageNumber">خمن رقم الصفحة</option>
                   <option value="ayahCount">خمن كم عدد آيات الصفحة؟ (السؤال: أول آية)</option>
@@ -526,10 +526,7 @@
         <div id="challengePlaySection" style="display:none;">
           <div class="view-head">
             <div class="view-title">⚔️ التحدي جارٍ</div>
-            <div id="challengeProgressLabel" class="challenge-progress-label"></div>
           </div>
-
-          <div id="challengeScoreboard" class="challenge-scoreboard"></div>
 
           <!-- Shown once at the start of every same-type block (including
                the very first question) — BEFORE the timer starts, so the
@@ -543,16 +540,23 @@
           </div>
 
           <div id="challengeQuestionArea" style="display:none;">
-            <div class="progress-wrap" style="margin: 12px auto; width:100%;">
-              <div id="challengeProgressBar" class="progress-bar"></div>
-            </div>
+            <div id="challengeFlashcardWrap" class="flashcard-wrap">
+              <div class="quiz-header-row">
+                <div id="challengeProgressLabel" class="challenge-progress-label"></div>
+                <div id="challengeScoreboard" class="challenge-scoreboard"></div>
+              </div>
 
-            <div id="challengeFlashcard" class="mcq-card">
-              <div class="helper" id="challengeCardHelp"></div>
-              <div class="text" id="challengeQText">—</div>
-              <button id="challengePlayAudioBtn" type="button" class="btn small ghost audio-btn" style="display:none;">🔊 استماع</button>
-              <div class="sub">مرجع للمجموعة — من يجيب أولاً يقول الجواب بصوت عالٍ</div>
-              <div id="challengeMcqChoices" class="mcq-choices"></div>
+              <div class="progress-wrap" style="width:100%;">
+                <div id="challengeProgressBar" class="progress-bar"></div>
+              </div>
+
+              <div id="challengeFlashcard" class="mcq-card">
+                <div class="helper" id="challengeCardHelp"></div>
+                <div class="text" id="challengeQText">—</div>
+                <button id="challengePlayAudioBtn" type="button" class="btn small ghost audio-btn" style="display:none;">🔊 استماع</button>
+                <div class="sub">مرجع للمجموعة — من يجيب أولاً يقول الجواب بصوت عالٍ</div>
+                <div id="challengeMcqChoices" class="mcq-choices"></div>
+              </div>
             </div>
 
             <button id="challengeRevealBtn" class="btn primary" style="margin-top:14px; width:100%;">كشف الإجابة</button>
@@ -699,10 +703,7 @@
           <div id="duelPlaySection" style="display:none;">
             <div class="view-head">
               <div class="view-title">⚔️ المبارزة جارية</div>
-              <div id="duelProgressLabel" class="challenge-progress-label"></div>
             </div>
-
-            <div id="duelScoreboard" class="duel-scoreboard"></div>
 
             <!-- Shown briefly (synced for both players — see
                  advance_duel_question()'s pre-roll delay) whenever the
@@ -715,16 +716,23 @@
             </div>
 
             <div id="duelQuestionArea">
-              <div class="progress-wrap" style="margin: 12px auto; width:100%;">
-                <div id="duelProgressBar" class="progress-bar"></div>
-              </div>
+              <div id="duelFlashcardWrap" class="flashcard-wrap">
+                <div class="quiz-header-row">
+                  <div id="duelProgressLabel" class="challenge-progress-label"></div>
+                  <div id="duelScoreboard" class="duel-scoreboard"></div>
+                </div>
 
-              <div id="duelFlashcard" class="mcq-card">
-                <div class="helper" id="duelCardHelp"></div>
-                <div class="text" id="duelQText">—</div>
-                <button id="duelPlayAudioBtn" type="button" class="btn small ghost audio-btn" style="display:none;">🔊 استماع</button>
-                <div class="sub" id="duelSub">اختر الإجابة الصحيحة بأسرع ما يمكن</div>
-                <div id="duelMcqChoices" class="mcq-choices"></div>
+                <div class="progress-wrap" style="width:100%;">
+                  <div id="duelProgressBar" class="progress-bar"></div>
+                </div>
+
+                <div id="duelFlashcard" class="mcq-card">
+                  <div class="helper" id="duelCardHelp"></div>
+                  <div class="text" id="duelQText">—</div>
+                  <button id="duelPlayAudioBtn" type="button" class="btn small ghost audio-btn" style="display:none;">🔊 استماع</button>
+                  <div class="sub" id="duelSub">اختر الإجابة الصحيحة بأسرع ما يمكن</div>
+                  <div id="duelMcqChoices" class="mcq-choices"></div>
+                </div>
               </div>
 
               <div id="duelRoundStatus" class="duel-round-status" style="display:none;"></div>
@@ -842,9 +850,6 @@
               <button id="selfEndBtn" type="button" class="btn small ghost danger">إنهاء الاختبار</button>
             </div>
 
-            <div id="selfProgressLabel" class="challenge-progress-label"></div>
-            <div id="selfScoreBox" class="score"></div>
-
             <!-- Shown between every 3-question block — pauses play
                  until the user taps to continue, whether the next
                  block repeats the same type or starts a new one. -->
@@ -858,16 +863,23 @@
             </div>
 
             <div id="selfQuestionArea">
-              <div class="progress-wrap" style="margin: 12px auto; width:100%;">
-                <div id="selfProgressBar" class="progress-bar"></div>
-              </div>
+              <div id="selfFlashcardWrap" class="flashcard-wrap">
+                <div class="quiz-header-row">
+                  <div id="selfProgressLabel" class="challenge-progress-label"></div>
+                  <div id="selfScoreBox" class="score"></div>
+                </div>
 
-              <div id="selfFlashcard" class="mcq-card">
-                <div class="helper" id="selfCardHelp"></div>
-                <div class="text" id="selfQText">—</div>
-                <button id="selfPlayAudioBtn" type="button" class="btn small ghost audio-btn" style="display:none;">🔊 استماع</button>
-                <div class="sub">اضغط على أحد الخيارات أدناه للإجابة</div>
-                <div id="selfMcqChoices" class="mcq-choices"></div>
+                <div class="progress-wrap" style="width:100%;">
+                  <div id="selfProgressBar" class="progress-bar"></div>
+                </div>
+
+                <div id="selfFlashcard" class="mcq-card">
+                  <div class="helper" id="selfCardHelp"></div>
+                  <div class="text" id="selfQText">—</div>
+                  <button id="selfPlayAudioBtn" type="button" class="btn small ghost audio-btn" style="display:none;">🔊 استماع</button>
+                  <div class="sub">اضغط على أحد الخيارات أدناه للإجابة</div>
+                  <div id="selfMcqChoices" class="mcq-choices"></div>
+                </div>
               </div>
             </div>
           </div>

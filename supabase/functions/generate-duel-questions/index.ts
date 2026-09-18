@@ -220,6 +220,10 @@ function pickQAFromPage(ayahs: Ayah[], type: string, page: number): QA | null {
     const idx = randInt(1, ayahs.length - 1);
     return { q: clean(ayahs[idx].text), a: clean(ayahs[idx - 1].text), kind: "text", qAyahNumber: ayahs[idx].number };
   }
+  if (type === "next") {
+    const idx = randInt(0, ayahs.length - 2);
+    return { q: clean(ayahs[idx].text), a: clean(ayahs[idx + 1].text), kind: "text", qAyahNumber: ayahs[idx].number };
+  }
   if (type === "surah") {
     const candidate = ayahs[randInt(0, ayahs.length - 1)];
     return { q: clean(candidate.text), a: getSurahName(candidate), kind: "surah", qAyahNumber: candidate.number };
