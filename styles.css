@@ -202,17 +202,16 @@ body::before {
   row-gap: 6px;
 }
 
-.topbar-session-name {
-  flex: 1;
-  min-width: 0;
-  text-align: center;
-  font-size: 13px;
-  font-weight: 800;
+.topbar-page-title {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'Aref Ruqaa', serif;
+  font-weight: 700;
+  font-size: 15px;
   color: var(--accent-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 0 6px;
 }
 
 .topbar-auth {
@@ -436,9 +435,12 @@ body::before {
   flex-wrap: wrap;
 }
 
-/* -------- Home page: read-only range chip -------- */
+/* -------- Home page: read-only range chip (shares .quiz-header-row
+   with the score box now, so it flexes to share space instead of
+   forcing full width) -------- */
 .range-chip {
-  width: min(94vw, var(--maxw));
+  flex: 1 1 auto;
+  min-width: 0;
   text-align: center;
   font-size: 12px;
   font-weight: 800;
@@ -447,6 +449,9 @@ body::before {
   border: 1.5px solid rgba(var(--ink-rgb), 0.1);
   border-radius: 999px;
   padding: 6px 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* -------- Home page: collapsible settings section -------- */
@@ -1828,13 +1833,6 @@ select:focus, input:focus {
   margin-bottom: 12px;
   min-height: 750px;
   max-height: 900px;
-}
-
-.quran-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
 }
 
 .quran-menu-wrap { position: relative; }

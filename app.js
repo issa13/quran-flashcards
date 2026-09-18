@@ -66,8 +66,6 @@ const customRangeRow = document.getElementById("customRangeRow");
 const customMinEl = document.getElementById("customMin");
 const customMaxEl = document.getElementById("customMax");
 
-const topbarSessionName = document.getElementById("topbarSessionName");
-
 const scoreBox = document.getElementById("scoreBox");
 const comboBox = document.getElementById("comboBox");
 const cardHelp = document.getElementById("cardHelp");
@@ -423,10 +421,6 @@ function getGuestRangeFromSelect() {
 // under ⚔️ التحديات → ذاتي (see the self-challenge section below).
 function getActiveRange() {
   return getGuestRangeFromSelect();
-}
-
-function setTopbarSessionName(title) {
-  topbarSessionName.textContent = title || "";
 }
 
 // -------- generation gating --------

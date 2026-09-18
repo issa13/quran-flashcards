@@ -30,7 +30,10 @@
 <body>
   <div class="wrap">
 
-    <!-- Compact top bar: auth state (left), session name (right) -->
+    <!-- Compact top bar: auth state (left), active page's title (right,
+         same spot the theme button used to sit — it moved into the
+         profile view). The quran view's title travels together with
+         its ⋮ menu, exactly as it appeared in-page before. -->
     <div class="topbar">
       <div id="guestActions" class="topbar-auth">
         <button id="loginOpenBtn" class="btn small">تسجيل الدخول</button>
@@ -38,7 +41,24 @@
       <div id="userActions" class="topbar-auth" style="display:none;">
         <span id="userLevelBadge" class="level-badge" style="display:none;"></span>
       </div>
-      <div id="topbarSessionName" class="topbar-session-name"></div>
+      <div id="topbarPageTitle" class="topbar-page-title">
+        <span id="topbarPageTitleText"></span>
+        <div id="quranMenuWrap" class="quran-menu-wrap" style="display:none;">
+          <button id="quranMenuBtn" type="button" class="btn small ghost quran-menu-btn" aria-haspopup="true" aria-expanded="false" aria-label="القائمة">⋮</button>
+          <div id="quranMenuDropdown" class="quran-menu-dropdown" style="display:none;">
+            <button type="button" class="quran-menu-item" data-modal="quranSearchModal">🔍 بحث</button>
+            <button type="button" class="quran-menu-item" data-modal="quranGoToModal">📍 الذهاب إلى</button>
+            <button type="button" class="quran-menu-item" data-modal="quranBookmarksModal">🔖 العلامات المرجعية</button>
+            <button type="button" class="quran-menu-item" data-modal="quranReciterModal">🎙️ القارئ</button>
+            <button type="button" class="quran-menu-item" data-modal="quranListenModal">🎧 استماع لمقطع</button>
+            <button type="button" class="quran-menu-item" data-quiz-action="page">🎯 اختبار من هذه الصفحة</button>
+            <button type="button" class="quran-menu-item" data-quiz-action="surah">🎯 اختبار من هذه السورة</button>
+            <button type="button" class="quran-menu-item" data-quiz-action="juz">🎯 اختبار من هذا الجزء</button>
+            <button type="button" class="quran-menu-item" data-quiz-action="around5">🎯 اختبار حول الصفحة (±5)</button>
+            <button type="button" class="quran-menu-item" data-quiz-action="around10">🎯 اختبار حول الصفحة (±10)</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ==================================================================
@@ -50,23 +70,15 @@
          ================================================================== -->
     <div id="view-home" class="app-view">
 
-      <!-- Compact header: title + score/combo, one row -->
+      <!-- Compact header: range glance + score/combo, one row. Full
+           range control is in ⚙️ الإعدادات below. -->
       <div class="quiz-header-row">
-        <div class="title-block">
-          <div class="app-title">بطاقات مراجعة القرآن</div>
-          <div class="title-ornament" aria-hidden="true">
-            <span></span><i></i><span></span>
-          </div>
-        </div>
+        <div id="homeRangeChip" class="range-chip">📖 —</div>
         <div class="score-combo-wrap">
           <div id="scoreBox" class="score">النتيجة: 0 / 0</div>
           <div id="comboBox" class="combo-box" style="display:none;"></div>
         </div>
       </div>
-
-      <!-- Read-only glance at the active range — full control is in
-           ⚙️ الإعدادات below. -->
-      <div id="homeRangeChip" class="range-chip">📖 —</div>
 
       <!-- Progress -->
       <div class="progress-wrap" aria-label="شريط المؤقت">
@@ -211,25 +223,6 @@
     <div id="view-quran" class="app-view active">
       <div class="quran-shell">
 
-        <div class="quran-topbar">
-          <div class="view-title">📖 القرآن الكريم</div>
-          <div class="quran-menu-wrap">
-            <button id="quranMenuBtn" type="button" class="btn small ghost quran-menu-btn" aria-haspopup="true" aria-expanded="false" aria-label="القائمة">⋮</button>
-            <div id="quranMenuDropdown" class="quran-menu-dropdown" style="display:none;">
-              <button type="button" class="quran-menu-item" data-modal="quranSearchModal">🔍 بحث</button>
-              <button type="button" class="quran-menu-item" data-modal="quranGoToModal">📍 الذهاب إلى</button>
-              <button type="button" class="quran-menu-item" data-modal="quranBookmarksModal">🔖 العلامات المرجعية</button>
-              <button type="button" class="quran-menu-item" data-modal="quranReciterModal">🎙️ القارئ</button>
-              <button type="button" class="quran-menu-item" data-modal="quranListenModal">🎧 استماع لمقطع</button>
-              <button type="button" class="quran-menu-item" data-quiz-action="page">🎯 اختبار من هذه الصفحة</button>
-              <button type="button" class="quran-menu-item" data-quiz-action="surah">🎯 اختبار من هذه السورة</button>
-              <button type="button" class="quran-menu-item" data-quiz-action="juz">🎯 اختبار من هذا الجزء</button>
-              <button type="button" class="quran-menu-item" data-quiz-action="around5">🎯 اختبار حول الصفحة (±5)</button>
-              <button type="button" class="quran-menu-item" data-quiz-action="around10">🎯 اختبار حول الصفحة (±10)</button>
-            </div>
-          </div>
-        </div>
-
         <div id="quranPageViewport" class="quran-page-viewport">
           <div id="quranPageContent" class="quran-page-content" style="font-size: 16px;">
             <div class="status">جاري التحميل...</div>
@@ -278,9 +271,6 @@
       <div id="profileSignedInSections">
 
         <div class="view-card">
-          <div class="view-head">
-            <div class="view-title">👤 ملفي الشخصي</div>
-          </div>
           <div id="profileLevelSummary"></div>
           <div id="profileProgressSummary"></div>
         </div>
@@ -354,10 +344,6 @@
     <div id="view-friends" class="app-view">
 
       <div id="friendsListSection" class="view-card">
-        <div class="view-head">
-          <div class="view-title">👥 أصدقائي</div>
-        </div>
-
         <!-- Guest-only — loadFriendsModal() in auth-ui.js shows this
              instead of fetching/rendering the (account-only) friend
              code, requests, and friends list. -->
@@ -419,9 +405,6 @@
          ================================================================== -->
     <div id="view-leaderboard" class="app-view">
       <div class="view-card">
-        <div class="view-head">
-          <div class="view-title">🏆 لوحة الصدارة</div>
-        </div>
         <div class="modal-hint" style="margin-top:0; margin-bottom:12px; text-align:start;">
           الترتيب عادل: يأخذ بعين الاعتبار الدقة وعدد الأسئلة ونطاق الصفحات، فجلسة صغيرة أو ضيقة النطاق لا تتصدّر على حساب جلسة أكبر وأشمل.
         </div>

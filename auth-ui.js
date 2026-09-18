@@ -4,6 +4,8 @@
 const guestActions = document.getElementById("guestActions");
 const userActions = document.getElementById("userActions");
 const userLevelBadge = document.getElementById("userLevelBadge");
+const topbarPageTitleText = document.getElementById("topbarPageTitleText");
+const quranMenuWrap = document.getElementById("quranMenuWrap");
 
 const authModal = document.getElementById("authModal");
 const loginOpenBtn = document.getElementById("loginOpenBtn");
@@ -80,15 +82,27 @@ const appViews = {
   challenge: document.getElementById("view-challenge"),
 };
 
+// Matches each bottom-nav tab's own icon+label exactly, so the topbar
+// title is never out of sync with which tab is actually active.
+const TOPBAR_TITLES = {
+  home: "📝 اختبارات",
+  quran: "📖 القرآن",
+  challenge: "⚔️ تحديات",
+  leaderboard: "🏆 لوحة الصدارة",
+  friends: "👥 أصدقائي",
+  profile: "👤 ملفي الشخصي",
+};
+
 function switchView(name) {
   if (!appViews[name]) return;
 
   Object.entries(appViews).forEach(([key, el]) => el.classList.toggle("active", key === name));
   bottomNavButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.view === name));
 
-  // The session name is only meaningful on the main quiz view — it'd
-  // just be visual clutter on every other tab.
-  topbarSessionName.style.display = (name === "home") ? "" : "none";
+  topbarPageTitleText.textContent = TOPBAR_TITLES[name] || "";
+  // The quran ⋮ menu travels with the title, in the same topbar slot
+  // it used to occupy in-page — only relevant on that one tab.
+  quranMenuWrap.style.display = (name === "quran") ? "flex" : "none";
 
   if (name === "profile") loadProfileView();
   else if (name === "friends") { showFriendsListSection(); loadFriendsModal(); }

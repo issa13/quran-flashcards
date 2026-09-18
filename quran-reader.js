@@ -551,8 +551,8 @@ quranPrevBtn.addEventListener("click", () => quranGoToPage(currentQuranPage - 1)
 quranNextBtn.addEventListener("click", () => quranGoToPage(currentQuranPage + 1));
 
 // -------- swipe navigation (mobile) --------
-// Swipe right = "رجعت لورا" (same direction as ▶ quranPrevBtn),
-// swipe left = "الصفحة يلي بعدها" (same direction as ◀ quranNextBtn).
+// Swipe right = next page, swipe left = previous page — same
+// direction as the ◀/▶ quranNextBtn/quranPrevBtn buttons.
 (function setupQuranSwipeNav() {
   const SWIPE_MIN_DISTANCE = 50; // px — how far counts as an intentional swipe, not a tap
   const SWIPE_MAX_VERTICAL = 60; // px — keeps a mostly-vertical gesture from triggering a page turn
@@ -581,9 +581,9 @@ quranNextBtn.addEventListener("click", () => quranGoToPage(currentQuranPage + 1)
     if (Math.abs(deltaX) < SWIPE_MIN_DISTANCE) return;
 
     if (deltaX > 0) {
-      if (currentQuranPage > 1) quranGoToPage(currentQuranPage - 1);
-    } else {
       if (currentQuranPage < 604) quranGoToPage(currentQuranPage + 1);
+    } else {
+      if (currentQuranPage > 1) quranGoToPage(currentQuranPage - 1);
     }
   }, { passive: true });
 })();
