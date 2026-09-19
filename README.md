@@ -8,7 +8,7 @@ This is a plain-language map of the whole project — what each file does, where
 
 This is a **static web app** — no build step, no backend server of your own. It's just HTML/CSS/JS files that a browser loads directly. Two outside things it talks to:
 
-- **Supabase** — a hosted database/auth service, used ONLY for accounts, syncing XP/streaks/achievements, friends, leaderboards, and online duels.
+- **Supabase** — a hosted database/auth service, used ONLY for accounts, syncing XP/streaks/achievements, friends, leaderboards, resumable ⚔️ التحديات → ذاتي sessions, and online duels.
 - **everyayah.com** — a plain file server that hosts Quran recitation audio (mp3 files).
 
 Everything else — the Quran text itself, page layout, search, question generation — now lives **in your own repo**, as plain files. That's the part that changed recently and is probably why things feel confusing, so the rest of this doc focuses there.
@@ -24,9 +24,9 @@ Everything else — the Quran text itself, page layout, search, question generat
 | `config.js` | Your Supabase project URL + public key. If left as placeholders, the app runs in **guest mode** (see §5). |
 | `supabase-client.js` | Thin wrapper around the Supabase SDK — login, signup, and every database call. |
 | `auth-ui.js` | Wires up login/signup UI, profile, friends, leaderboard, and switching between tabs. |
-| `app.js` | The core: solo quiz ("اختبارات"), offline local challenges ("تحديات" 📴), XP/leveling, and the online-duel *client* (the UI side, not the server side). |
-| `quran-reader.js` | The whole "📖 القرآن" reading tab — page rendering, search, bookmarks, reciter choice, listen-to-a-range. |
-| `index.ts` | A **Supabase Edge Function** — server-side code that generates the questions for online duels. Runs on Supabase's servers, not in the browser. |
+| `app.js` | The core: solo quiz ("اختبارات"), challenges ("تحديات" — 📱 محلي, 🌐 مباشر, 📝 ذاتي), XP/leveling, and the online-duel *client* (the UI side, not the server side). |
+| `quran-reader.js` | The whole "📖 القرآن" reading tab — page rendering, search, bookmarks, reciter choice, listen-to-a-range (with gapless-ish preloading), and swipe-to-turn-page on mobile. |
+| `index.ts` | A **Supabase Edge Function** — server-side code that generates the questions for online duels (🌐 مباشر). Runs on Supabase's servers, not in the browser. |
 | `supabase-schema.sql` | The database structure (tables, security rules, functions) — you run this once in Supabase's SQL editor. |
 | `mushaf-layout/` | 604 JSON files — one per Mushaf page (see §3). |
 | `quran-index/` | 2 JSON files, derived from the above (see §3). |
@@ -92,9 +92,11 @@ No API call, no lookup — just a predictable URL per reciter. This **does** nee
 | 📖 Reading the Quran, searching, bookmarks, goto page/surah/juz | **No** — all local files |
 | 🎧 Listening to recitation (single ayah or a range) | **Yes** — streams from everyayah.com |
 | 📝 اختبارات (solo quiz) — as a **guest** | **No** — text is local, scoring is saved in your browser only |
-| 📝 اختبارات — **signed in** | **Yes** — XP/streaks/achievements are saved to your account via Supabase |
-| 📴 تحديات محلي (offline local challenge) | **No** — same local text, never touches Supabase at all |
-| ⚔️ Online duels | **Yes**, always — matchmaking, live scoring, and question generation all happen on Supabase's servers |
+| 📝 اختبارات — **signed in** | **Yes** — XP/streaks/achievements are saved to your account via Supabase. There's no "session" here anymore either way — signed-in and guest play the exact same way, just with the account sync on top. |
+| 📱 تحديات محلي (offline pass-and-play, one device) | **No** — same local text, never touches Supabase at all |
+| 📝 تحديات ذاتي (solo, session-backed) — as a **guest** | **No** — fully in-memory; doesn't save and won't survive a page refresh |
+| 📝 تحديات ذاتي — **signed in** | **Yes** — creates a real, resumable session (survives a refresh) and can count toward the leaderboard |
+| 🌐 تحديات مباشر (online 1v1 duels) | **Yes**, always — matchmaking, live scoring, and question generation all happen on Supabase's servers |
 | Friends / leaderboard / profile sync | **Yes** — all Supabase |
 
 **Guest mode** (no account) is what makes the "no internet" rows possible — it stores everything (progress, last-read page, bookmarks, reciter choice) in your browser's `localStorage` instead of a server.
