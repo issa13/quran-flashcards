@@ -1,0 +1,26 @@
+{
+  "name": "quran-flashcards",
+  "version": "1.0.0",
+  "private": true,
+  "description": "بطاقات مراجعة القرآن — static web app, packaged for iOS/Android with Capacitor",
+  "scripts": {
+    "vendor": "node scripts/vendor.js",
+    "build:web": "node scripts/build-www.js",
+    "sync": "npm run build:web && npx cap sync",
+    "android": "npm run sync && npx cap open android",
+    "ios": "npm run sync && npx cap open ios"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
+    "@fontsource/amiri-quran": "^5.3.0",
+    "@fontsource/aref-ruqaa": "^5.3.0",
+    "@fontsource/tajawal": "^5.3.0",
+    "@supabase/supabase-js": "2.116.0"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/ios": "^8.5.2",
+    "@capacitor/status-bar": "^8.0.3"
+  }
+}

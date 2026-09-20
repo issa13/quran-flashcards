@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>بطاقات مراجعة القرآن</title>
   <script>
     // Change this value whenever local files are deployed so browsers fetch
@@ -1134,5 +1134,7 @@
   <script src="auth-ui.js"></script>
   <script src="app.js"></script>
   <script src="quran-reader.js"></script>
+  <!-- Native-app-only behaviour (status bar, later the Android back button). A no-op in a normal browser. -->
+  <script src="native-shell.js"></script>
 </body>
 </html>

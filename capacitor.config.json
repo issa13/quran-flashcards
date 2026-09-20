@@ -1,0 +1,12 @@
+{
+  "appId": "com.example.quranflashcards",
+  "appName": "بطاقات مراجعة القرآن",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "allowNavigation": [
+      "mzvlotfnoggywdjejjfx.supabase.co",
+      "everyayah.com"
+    ]
+  }
+}

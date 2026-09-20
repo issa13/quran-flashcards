@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">بطاقات مراجعة القرآن</string>
+    <string name="title_activity_main">بطاقات مراجعة القرآن</string>
+    <string name="package_name">com.example.quranflashcards</string>
+    <string name="custom_url_scheme">com.example.quranflashcards</string>
+</resources>
