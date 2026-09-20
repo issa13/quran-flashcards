@@ -898,39 +898,47 @@ function getTypeLabel(type) {
 // its recitation audio on demand (see fetchAyahAudioUrl()). Nothing
 // ever does arithmetic on this value, only passes it through, so its
 // exact format doesn't matter beyond that fetchAyahAudioUrl() understands it.
-function pickQAFromPage(ayahs, type, page) {
+function pickQAFromPage(ayahs, type, page, forcedIdx) {
   if (!ayahs || ayahs.length < 2) return null;
 
   const first = ayahs[0];
   const last = ayahs[ayahs.length - 1];
 
+  // forcedIdx (optional) pins WHICH ayah of the page the question is
+  // built from — used by the no-repeat pools below (see
+  // generateUniqueQuestion) so a question can be chosen deliberately
+  // instead of at random. Without it (or if it falls outside the
+  // valid range for this type) the pick is random, exactly as before.
+  const pickIdx = (lo, hi) =>
+    (Number.isInteger(forcedIdx) && forcedIdx >= lo && forcedIdx <= hi) ? forcedIdx : randInt(lo, hi);
+
   if (type === "first") {
-    const candidate = ayahs[randInt(1, ayahs.length - 1)];
+    const candidate = ayahs[pickIdx(1, ayahs.length - 1)];
     return { q: clean(candidate.text), a: clean(first.text), kind: "firstAyah", qAyahNumber: candidate.number, sourcePage: page };
   }
 
   if (type === "last") {
-    const candidate = ayahs[randInt(0, ayahs.length - 2)];
+    const candidate = ayahs[pickIdx(0, ayahs.length - 2)];
     return { q: clean(candidate.text), a: clean(last.text), kind: "lastAyah", qAyahNumber: candidate.number, sourcePage: page };
   }
 
   if (type === "previous") {
-    const idx = randInt(1, ayahs.length - 1);
+    const idx = pickIdx(1, ayahs.length - 1);
     return { q: clean(ayahs[idx].text), a: clean(ayahs[idx - 1].text), kind: "text", qAyahNumber: ayahs[idx].number };
   }
 
   if (type === "next") {
-    const idx = randInt(0, ayahs.length - 2);
+    const idx = pickIdx(0, ayahs.length - 2);
     return { q: clean(ayahs[idx].text), a: clean(ayahs[idx + 1].text), kind: "text", qAyahNumber: ayahs[idx].number };
   }
 
   if (type === "surah") {
-    const candidate = ayahs[randInt(0, ayahs.length - 1)];
+    const candidate = ayahs[pickIdx(0, ayahs.length - 1)];
     return { q: clean(candidate.text), a: getSurahName(candidate), kind: "surah", qAyahNumber: candidate.number };
   }
 
   if (type === "pageNumber") {
-    const candidate = ayahs[randInt(0, ayahs.length - 1)];
+    const candidate = ayahs[pickIdx(0, ayahs.length - 1)];
     return { q: clean(candidate.text), a: String(page), kind: "pageNumber", qAyahNumber: candidate.number };
   }
 
@@ -939,14 +947,14 @@ function pickQAFromPage(ayahs, type, page) {
   }
 
   if (type === "juz") {
-    const candidate = ayahs[randInt(0, ayahs.length - 1)];
+    const candidate = ayahs[pickIdx(0, ayahs.length - 1)];
     const juz = candidate.juz;
     if (juz == null) return null;
     return { q: clean(candidate.text), a: String(juz), kind: "juz", qAyahNumber: candidate.number };
   }
 
   if (type === "ayahNumber") {
-    const candidate = ayahs[randInt(0, ayahs.length - 1)];
+    const candidate = ayahs[pickIdx(0, ayahs.length - 1)];
     const num = candidate.numberInSurah;
     if (num == null) return null;
     return { q: clean(candidate.text), a: String(num), kind: "ayahNumber", qAyahNumber: candidate.number };
@@ -956,7 +964,7 @@ function pickQAFromPage(ayahs, type, page) {
     // q is deliberately left empty — this type is audio-only, the
     // ayah's text must never be shown (see generateCard()'s handling
     // of qa.audioOnly). Only the answer (the next ayah) is text.
-    const idx = randInt(0, ayahs.length - 2);
+    const idx = pickIdx(0, ayahs.length - 2);
     const qAyah = ayahs[idx];
     const aAyah = ayahs[idx + 1];
     return { q: "", a: clean(aAyah.text), kind: "text", qAyahNumber: qAyah.number, audioOnly: true };
@@ -1145,6 +1153,191 @@ async function buildChoices(qa, minP, maxP) {
   return { choices, correctIndex: choices.indexOf(correct) };
 }
 
+// ============================================================
+// Question de-duplication
+//
+// A question's identity is (type, question ayah) — the same ayah
+// asked as the same type is "the same question", however its wrong
+// answers happen to be shuffled. Rules (see README §9):
+//   - ⚔️ التحديات (محلي / مباشر / ذاتي): never repeat a question
+//     within one challenge, ever.
+//   - 📝 اختبارات: never repeat a question within the next 25.
+//
+// Rather than pick at random and hope, every (type, page range) gets
+// an exact POOL of the questions that are possible in that range
+// (built once from the local ayah index, cached). Picking then
+// samples from the pool and skips anything the caller says is off
+// limits — so it's known EXACTLY when a type has run out, instead of
+// guessing after N failed random tries. Picking stays "random page,
+// then random ayah on that page" while plenty is left, i.e. the same
+// distribution as before; a full sweep only happens near exhaustion.
+// ============================================================
+const TESTS_NO_REPEAT_WINDOW = 25;
+const QUESTION_POOL_CACHE_MAX = 40;
+
+function questionKey(type, ayahRef) { return `${type}|${ayahRef}`; }
+
+function indexRange(lo, hi) {
+  const out = [];
+  for (let i = lo; i <= hi; i++) out.push(i);
+  return out;
+}
+
+async function buildQuestionPool(type, minP, maxP) {
+  const all = await fetchLocalAyahIndex();
+
+  const refsByPage = new Map();
+  for (const a of all) {
+    if (a.page < minP || a.page > maxP) continue;
+    let list = refsByPage.get(a.page);
+    if (!list) { list = []; refsByPage.set(a.page, list); }
+    list.push(`${a.surah}:${a.ayah}`);
+  }
+
+  // Adjacent-page types only ever use pages whose neighbour is still
+  // inside the range (same rule generateCard() always applied).
+  const pageStart = (type === "prevPageFirst" || type === "pageStartToPrevLast") ? minP + 1 : minP;
+  const pageEnd = (type === "nextPageFirst" || type === "pageEndToNextFirst") ? maxP - 1 : maxP;
+  const isAdjacent = ADJACENT_TYPES.has(type);
+
+  const pages = [];
+  for (let page = pageStart; page <= pageEnd; page++) {
+    const refs = refsByPage.get(page);
+    if (!refs || !refs.length) continue;
+    const n = refs.length;
+    if (!isAdjacent && n < 2) continue; // pickQAFromPage() needs at least 2 ayahs on the page
+
+    // Which ayahs of this page can be THE question ayah for this type —
+    // mirrors exactly what pickQAFromPage()/pickAdjacentPageQA() pick from.
+    let idxs;
+    switch (type) {
+      case "first":
+      case "previous":
+        idxs = indexRange(1, n - 1); break;
+      case "last":
+      case "next":
+      case "listenNext":
+        idxs = indexRange(0, n - 2); break;
+      case "ayahCount":
+      case "nextPageFirst":
+      case "prevPageFirst":
+      case "pageStartToPrevLast":
+        idxs = [0]; break;
+      case "pageEndToNextFirst":
+        idxs = [n - 1]; break;
+      default: // surah, pageNumber, juz, ayahNumber
+        idxs = indexRange(0, n - 1);
+    }
+    if (!idxs.length) continue;
+    pages.push(idxs.map((idx) => ({ page, idx, ref: refs[idx] })));
+  }
+
+  return { pages };
+}
+
+const questionPoolCache = new Map(); // "type|min|max" -> Promise<pool>
+function getQuestionPool(type, minP, maxP) {
+  const cacheKey = `${type}|${minP}|${maxP}`;
+  if (questionPoolCache.has(cacheKey)) return questionPoolCache.get(cacheKey);
+
+  const promise = buildQuestionPool(type, minP, maxP).catch((e) => {
+    questionPoolCache.delete(cacheKey);
+    throw e;
+  });
+  questionPoolCache.set(cacheKey, promise);
+  if (questionPoolCache.size > QUESTION_POOL_CACHE_MAX) {
+    questionPoolCache.delete(questionPoolCache.keys().next().value); // drop the oldest
+  }
+  return promise;
+}
+
+// Random unused entry from the pool, or null when nothing is left.
+// `isExcluded(key)` says which questions are off limits right now.
+function pickFromQuestionPool(pool, type, isExcluded) {
+  if (!pool.pages.length) return null;
+
+  // Fast path: random page, random ayah on it (the historical distribution).
+  for (let i = 0; i < 40; i++) {
+    const arr = pool.pages[randInt(0, pool.pages.length - 1)];
+    const entry = arr[randInt(0, arr.length - 1)];
+    if (!isExcluded(questionKey(type, entry.ref))) return entry;
+  }
+
+  // Near exhaustion: sweep everything so "nothing left" is exact.
+  const free = [];
+  for (const arr of pool.pages) {
+    for (const entry of arr) {
+      if (!isExcluded(questionKey(type, entry.ref))) free.push(entry);
+    }
+  }
+  return free.length ? free[randInt(0, free.length - 1)] : null;
+}
+
+// Builds one complete, ready-to-show question (text + shuffled
+// choices) that isn't in `excludeKeys` (a Set of questionKey()s, or
+// null for no restriction). Resolves to:
+//   { status: "ok", qa, built, page, key }
+//   { status: "exhausted" } — every possible question of this type in
+//                             this range is already excluded
+//   { status: "error" }     — something else went wrong (bad page data etc.)
+async function generateUniqueQuestion(type, minP, maxP, excludeKeys) {
+  try {
+    const pool = await getQuestionPool(type, minP, maxP);
+    const rejected = new Set(); // entries that turned out unusable (bad data) — never retried
+    const isExcluded = (key) => (excludeKeys && excludeKeys.has(key)) || rejected.has(key);
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const entry = pickFromQuestionPool(pool, type, isExcluded);
+      if (!entry) return { status: "exhausted" };
+      const key = questionKey(type, entry.ref);
+
+      let qa = null;
+      try {
+        if (ADJACENT_TYPES.has(type)) {
+          qa = await pickAdjacentPageQA(type, entry.page);
+        } else {
+          const ayahs = await fetchPageAyahs(entry.page);
+          qa = pickQAFromPage(ayahs, type, entry.page, entry.idx);
+        }
+      } catch (e) {
+        qa = null;
+      }
+      if (qa && !qa.q && !qa.audioOnly) qa = null;
+      if (qa && !qa.a) qa = null;
+      if (!qa) { rejected.add(key); continue; }
+
+      const built = await buildChoices(qa, minP, maxP);
+      if (!built || built.choices.length < 2 || built.correctIndex < 0) { rejected.add(key); continue; }
+
+      return { status: "ok", qa, built, page: entry.page, key };
+    }
+    return { status: "error" };
+  } catch (e) {
+    return { status: "error" };
+  }
+}
+
+// -------- 📝 اختبارات: no repeat within the next 25 questions --------
+let recentTestKeys = []; // the last TESTS_NO_REPEAT_WINDOW question keys, oldest first
+
+function rememberTestKey(key) {
+  recentTestKeys.push(key);
+  while (recentTestKeys.length > TESTS_NO_REPEAT_WINDOW) recentTestKeys.shift();
+}
+
+async function generateQuestionForTests(type, minP, maxP) {
+  // Normally every recent question is excluded. If the range is so
+  // small that a type has fewer questions than the window (e.g. 6
+  // pages of "ayah count"), don't block the person — relax by
+  // forgetting the OLDEST recent questions one at a time, so whatever
+  // repeats is always the one asked longest ago.
+  for (let start = 0; ; start++) {
+    const excluded = new Set(recentTestKeys.slice(start));
+    const gen = await generateUniqueQuestion(type, minP, maxP, excluded);
+    if (gen.status !== "exhausted" || start >= recentTestKeys.length) return gen;
+  }
+}
+
 // -------- MCQ rendering & interaction --------
 function renderChoices(choices, locked) {
   mcqChoicesEl.innerHTML = "";
@@ -1271,19 +1464,6 @@ async function generateCard() {
     // show description inside card
     cardHelp.textContent = `النوع: ${label} — ${getTypeDescription(type)}`;
 
-    // Adjacent-page types are kept strictly inside [minP, maxP] by
-    // never landing on the range's own last/first page as the
-    // "question" page — so their answer (on the next/previous page)
-    // always stays within the selected range too.
-    let page;
-    if (type === "nextPageFirst" || type === "pageEndToNextFirst") {
-      page = randInt(minP, maxP - 1);
-    } else if (type === "prevPageFirst" || type === "pageStartToPrevLast") {
-      page = randInt(minP + 1, maxP);
-    } else {
-      page = randInt(minP, maxP);
-    }
-
     setStatus("جاري التحميل...");
     lockGenerate();
 
@@ -1298,31 +1478,19 @@ async function generateCard() {
     currentCorrectIndex = -1;
     audioGateTimerPending = false;
 
-    let qa = null;
-
-    if (ADJACENT_TYPES.has(type)) {
-      qa = await pickAdjacentPageQA(type, page);
-    } else {
-      const ayahs = await fetchPageAyahs(page);
-      qa = pickQAFromPage(ayahs, type, page);
-    }
-
-    if (!qa || (!qa.q && !qa.audioOnly) || !qa.a) {
-      setCardText(qText, "تعذر إنشاء سؤال. حاول مرة أخرى.");
+    // Adjacent-page types stay strictly inside [minP, maxP], and no
+    // question (same ayah + same type) repeats within the next 25 —
+    // both handled by the pool behind generateQuestionForTests().
+    const gen = await generateQuestionForTests(type, minP, maxP);
+    if (gen.status !== "ok") {
+      setCardText(qText, "تعذر إنشاء سؤال. جرّب نطاقًا أوسع أو نوعًا آخر.");
       mcqChoicesEl.innerHTML = "";
       setStatus("حصلت مشكلة. جرّب مرة ثانية.");
       unlockGenerate();
       return;
     }
-
-    const built = await buildChoices(qa, minP, maxP);
-    if (!built || built.choices.length < 2 || built.correctIndex < 0) {
-      setCardText(qText, "تعذر إنشاء خيارات كافية لهذا السؤال. جرّب نطاقًا أوسع أو نوعًا آخر.");
-      mcqChoicesEl.innerHTML = "";
-      setStatus("حصلت مشكلة. جرّب مرة ثانية.");
-      unlockGenerate();
-      return;
-    }
+    const { qa, built, page } = gen;
+    rememberTestKey(gen.key);
 
     const isAudioOnly = !!qa.audioOnly;
     flashcard.classList.toggle("audio-question", isAudioOnly);
@@ -1412,6 +1580,7 @@ const challengeTypeIntro = document.getElementById("challengeTypeIntro");
 const challengeTypeIntroLabel = document.getElementById("challengeTypeIntroLabel");
 const challengeTypeIntroDesc = document.getElementById("challengeTypeIntroDesc");
 const challengeTypeIntroCount = document.getElementById("challengeTypeIntroCount");
+const challengeTypeIntroNotice = document.getElementById("challengeTypeIntroNotice");
 const challengeTypeIntroContinueBtn = document.getElementById("challengeTypeIntroContinueBtn");
 const challengeQuestionArea = document.getElementById("challengeQuestionArea");
 const challengeProgressBar = document.getElementById("challengeProgressBar");
@@ -1448,6 +1617,9 @@ let challengeTimerStart = 0;
 let challengeTimerDurationMs = 0;
 let challengeAudioEl = null;
 let challengeValidationToken = 0;
+let challengeUsedKeys = new Set();       // questionKey()s already asked THIS challenge — never repeated
+let challengeExhaustedTypes = [];        // types that ran out of unused questions
+let challengePendingNotice = "";         // shown once on the next type-intro screen
 
 function escapeChallengeHtml(str) {
   return (str || "").toString().replace(/[&<>"']/g, (c) => ({
@@ -1650,6 +1822,9 @@ challengeStartBtn.addEventListener("click", async () => {
   challengeQuestionIndex = 0;
   challengeLastShownType = null;
   challengeTypeBlockPosition = 0;
+  challengeUsedKeys = new Set();
+  challengeExhaustedTypes = [];
+  challengePendingNotice = "";
 
   renderChallengeScoreboard();
   challengeSetupSection.style.display = "none";
@@ -1774,6 +1949,14 @@ function showChallengeTypeIntro(type) {
   challengeTypeIntroDesc.textContent = getTypeDescription(type);
   const blockSize = challengeQueue.filter((t) => t === type).length;
   challengeTypeIntroCount.textContent = blockSize > 1 ? `${blockSize} أسئلة من هذا النوع` : "سؤال واحد من هذا النوع";
+
+  if (challengePendingNotice) {
+    challengeTypeIntroNotice.textContent = challengePendingNotice;
+    challengeTypeIntroNotice.style.display = "block";
+    challengePendingNotice = "";
+  } else {
+    challengeTypeIntroNotice.style.display = "none";
+  }
 }
 
 challengeTypeIntroContinueBtn.addEventListener("click", async () => {
@@ -1793,50 +1976,37 @@ async function proceedToChallengeQuestion() {
 
   challengeQuestionIndex++;
   const type = challengeQueue.shift();
+  const prevBlockPosition = challengeTypeBlockPosition;
+  const prevLastShownType = challengeLastShownType;
   challengeTypeBlockPosition = (type === challengeLastShownType) ? challengeTypeBlockPosition + 1 : 1;
   challengeLastShownType = type;
   challengeProgressLabel.textContent =
     `سؤال ${challengeQuestionIndex} من ${challengeTotalQuestions} (${challengeTypeBlockPosition}/${challengeCountPerType} لهذا النوع)`;
 
-  let qa = null;
-  let attempts = 0;
-  while (!qa && attempts < 6) {
-    attempts++;
-    let page;
-    if (type === "nextPageFirst" || type === "pageEndToNextFirst") {
-      page = randInt(challengeRangeMinP, challengeRangeMaxP - 1);
-    } else if (type === "prevPageFirst" || type === "pageStartToPrevLast") {
-      page = randInt(challengeRangeMinP + 1, challengeRangeMaxP);
-    } else {
-      page = randInt(challengeRangeMinP, challengeRangeMaxP);
-    }
+  // Never repeats a question (same ayah + same type) within a challenge.
+  const gen = await generateUniqueQuestion(type, challengeRangeMinP, challengeRangeMaxP, challengeUsedKeys);
+  if (gen.status !== "ok") {
+    // This slot never became a real question — undo its numbering.
+    challengeQuestionIndex--;
+    challengeTypeBlockPosition = prevBlockPosition;
+    challengeLastShownType = prevLastShownType;
 
-    try {
-      if (ADJACENT_TYPES.has(type)) {
-        qa = await pickAdjacentPageQA(type, page);
-      } else {
-        const ayahs = await fetchPageAyahs(page);
-        qa = pickQAFromPage(ayahs, type, page);
-      }
-    } catch (e) {
-      qa = null;
+    let removed = 1;
+    if (gen.status === "exhausted") {
+      // Nothing unused left for this type in this range: drop the rest
+      // of its questions rather than repeat one.
+      const before = challengeQueue.length;
+      challengeQueue = challengeQueue.filter((t) => t !== type);
+      removed += before - challengeQueue.length;
+      if (!challengeExhaustedTypes.includes(type)) challengeExhaustedTypes.push(type);
+      challengePendingNotice = `نفدت الأسئلة المتاحة من نوع «${getTypeLabel(type)}» في هذا النطاق دون تكرار، لذلك تم تخطي بقية أسئلة هذا النوع.`;
     }
-    if (qa && !qa.q && !qa.audioOnly) qa = null;
-    if (qa && !qa.a) qa = null;
-  }
-
-  if (!qa) {
-    challengeTotalQuestions = Math.max(challengeQuestionIndex, challengeTotalQuestions - 1);
+    challengeTotalQuestions = Math.max(challengeQuestionIndex, challengeTotalQuestions - removed);
     await nextChallengeQuestion();
     return;
   }
-
-  const built = await buildChoices(qa, challengeRangeMinP, challengeRangeMaxP);
-  if (!built || built.choices.length < 2 || built.correctIndex < 0) {
-    challengeTotalQuestions = Math.max(challengeQuestionIndex, challengeTotalQuestions - 1);
-    await nextChallengeQuestion();
-    return;
-  }
+  challengeUsedKeys.add(gen.key);
+  const { qa, built } = gen;
 
   challengeCurrentCorrectIndex = built.correctIndex;
   challengeCurrentAudioAyah = qa.qAyahNumber || null;
@@ -1908,6 +2078,10 @@ function finishChallenge() {
     })
     .join("");
 
+  const exhaustedNoteHtml = challengeExhaustedTypes.length
+    ? `<div class="challenge-notice">نفدت الأسئلة المتاحة (دون تكرار) من: ${escapeChallengeHtml(challengeExhaustedTypes.map(getTypeLabel).join("، "))} — لذلك جاء التحدي أقصر من المخطط.</div>`
+    : "";
+
   const headline = maxScore === 0
     ? "لم يسجّل أحد أي نقطة!"
     : winners.length > 1
@@ -1919,7 +2093,7 @@ function finishChallenge() {
       <div class="stat-big" style="font-size:20px;">${escapeChallengeHtml(headline)}</div>
       <div class="stat-caption">${challengeTotalQuestions} سؤال في هذا التحدي</div>
     </div>
-    <div class="stat-rows">${rowsHtml}</div>`;
+    <div class="stat-rows">${rowsHtml}</div>${exhaustedNoteHtml}`;
 }
 
 function resetChallengeToSetup() {
@@ -2971,6 +3145,11 @@ const selfEndBtn = document.getElementById("selfEndBtn");
 const selfProgressLabel = document.getElementById("selfProgressLabel");
 const selfScoreBox = document.getElementById("selfScoreBox");
 const selfBlockPause = document.getElementById("selfBlockPause");
+const selfBlockPauseIcon = document.getElementById("selfBlockPauseIcon");
+const selfBlockPauseDone = document.getElementById("selfBlockPauseDone");
+const selfBlockPauseStats = document.getElementById("selfBlockPauseStats");
+const selfBlockPauseNotice = document.getElementById("selfBlockPauseNotice");
+const selfBlockPauseTag = document.getElementById("selfBlockPauseTag");
 const selfBlockPauseLabel = document.getElementById("selfBlockPauseLabel");
 const selfBlockPauseDesc = document.getElementById("selfBlockPauseDesc");
 const selfBlockContinueBtn = document.getElementById("selfBlockContinueBtn");
@@ -3028,6 +3207,60 @@ let selfTimerDurationMs = 0;
 
 let selfAudioEl = null;
 let selfCurrentAudioAyah = null;
+
+// Per-run tracking (reset whenever a run starts or is resumed)
+let selfUsedKeys = new Set();        // questionKey()s already asked in this challenge — never repeated
+let selfExhaustedTypes = new Set();  // types that ran out of unused questions
+let selfPauseNotices = [];           // shown once on the next block-pause screen
+let selfBlockAnswered = 0;           // answers / correct answers in the block in progress
+let selfBlockCorrect = 0;
+let selfAttemptLog = [];             // [{ question_type, is_correct }] for this page-load — feeds the guest results breakdown
+let selfPendingRecords = [];         // in-flight recordAttempt() calls, awaited before the results are fetched
+let selfConsecutiveFailures = 0;     // guards against an endless loop if question generation keeps failing
+
+const SELF_USED_KEYS_PREFIX = "qf_self_used_";
+
+function resetSelfRunTracking() {
+  selfUsedKeys = new Set();
+  selfExhaustedTypes = new Set();
+  selfPauseNotices = [];
+  selfBlockAnswered = 0;
+  selfBlockCorrect = 0;
+  selfAttemptLog = [];
+  selfPendingRecords = [];
+  selfConsecutiveFailures = 0;
+}
+
+// The asked-question keys are persisted per session so a page refresh
+// in the middle of a signed-in challenge can't cause repeats.
+function saveSelfUsedKeys() {
+  if (!selfActiveSessionId) return;
+  try { localStorage.setItem(SELF_USED_KEYS_PREFIX + selfActiveSessionId, JSON.stringify([...selfUsedKeys])); } catch (e) { /* storage unavailable, ignore */ }
+}
+function loadSelfUsedKeys(sessionId) {
+  try {
+    const raw = localStorage.getItem(SELF_USED_KEYS_PREFIX + sessionId);
+    const list = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(list) ? list : []);
+  } catch (e) {
+    return new Set();
+  }
+}
+function clearSelfUsedKeys(sessionId) {
+  if (!sessionId) return;
+  try { localStorage.removeItem(SELF_USED_KEYS_PREFIX + sessionId); } catch (e) { /* ignore */ }
+}
+
+// A type has no unused questions left in this range: drop it from the
+// queue AND the unlimited-mode round robin, and tell the person on the
+// next pause screen.
+function handleSelfTypeExhausted(type) {
+  if (selfExhaustedTypes.has(type)) return;
+  selfExhaustedTypes.add(type);
+  selfQueue = selfQueue.filter((t) => t !== type);
+  selfCycleTypes = selfCycleTypes.filter((t) => t !== type);
+  selfPauseNotices.push(`نفدت الأسئلة المتاحة من نوع «${getTypeLabel(type)}» في هذا النطاق دون تكرار — لن يظهر هذا النوع مرة أخرى.`);
+}
 
 // -------- setup UI --------
 function renderSelfTypesGrid() {
@@ -3105,6 +3338,7 @@ function buildSelfQueueFromRemaining() {
 // selfQueue the same way either way.
 function replenishSelfQueueIfNeeded() {
   if (!selfUnlimited || selfQueue.length > 0) return;
+  if (!selfCycleTypes.length) return; // every selected type has run out of questions
   const type = selfCycleTypes[selfCycleIndex % selfCycleTypes.length];
   selfCycleIndex++;
   for (let i = 0; i < SELF_BLOCK_SIZE; i++) selfQueue.push(type);
@@ -3129,6 +3363,7 @@ selfStartBtn.addEventListener("click", async () => {
   selfQuestionIndex = 0;
   selfLastShownType = null;
   selfBlockPosition = 0;
+  resetSelfRunTracking();
 
   if (currentUser && typeof createSession === "function") {
     const newId = await createSession(range.minP, range.maxP, selectedTypes, countPerType);
@@ -3179,6 +3414,8 @@ async function enterSelfChallengeMode() {
       selfQuestionIndex = selfTotal;
       selfLastShownType = null;
       selfBlockPosition = 0;
+      resetSelfRunTracking();
+      selfUsedKeys = loadSelfUsedKeys(active.id); // so a refresh can't cause repeats
 
       if (selfUnlimited) {
         selfCycleTypes = shuffle([...selfSelectedTypes]);
@@ -3342,12 +3579,62 @@ function showSelfBlockPause(nextType) {
   selfQuestionArea.style.display = "none";
   selfBlockPause.style.display = "block";
   selfBlockPause.scrollIntoView({ behavior: "smooth", block: "start" });
-  selfBlockPauseLabel.textContent = selfLastShownType
-    ? `أكملت بلوكًا من نوع: ${getTypeLabel(selfLastShownType)}`
-    : "جاهز للبدء";
+
+  const hadPreviousBlock = !!selfLastShownType;
+  const sameType = hadPreviousBlock && nextType === selfLastShownType;
+
+  selfBlockPauseIcon.textContent = hadPreviousBlock ? "✅" : "🔔";
+
+  // The block that was just finished — deliberately SMALL and muted.
+  if (hadPreviousBlock) {
+    selfBlockPauseDone.textContent =
+      `أنهيت بلوك «${getTypeLabel(selfLastShownType)}» — ${selfBlockCorrect} من ${selfBlockAnswered} صحيحة`;
+    selfBlockPauseDone.style.display = "";
+  } else {
+    selfBlockPauseDone.style.display = "none";
+  }
+
+  // Where the whole challenge stands.
+  const remaining = selfQueue.length;
+  const pct = selfTotal > 0 ? Math.round((selfCorrect / selfTotal) * 100) : 0;
+  let statsHtml = `
+    <div class="self-stat-chip"><div class="self-stat-value">${selfTotal}</div><div class="self-stat-label">أجبت</div></div>
+    <div class="self-stat-chip"><div class="self-stat-value">${selfCorrect} <span class="self-stat-pct">(${pct}%)</span></div><div class="self-stat-label">صحيحة</div></div>
+    <div class="self-stat-chip"><div class="self-stat-value">${selfUnlimited ? "∞" : remaining}</div><div class="self-stat-label">${selfUnlimited ? "المتبقي: غير محدد" : "متبقٍ"}</div></div>`;
+  if (!selfUnlimited) {
+    const overall = selfTotal + remaining;
+    const progressPct = overall > 0 ? Math.round((selfTotal / overall) * 100) : 0;
+    statsHtml += `
+      <div class="self-block-progress">
+        <div class="level-progress-bar"><div class="level-progress-fill" style="width:${progressPct}%"></div></div>
+        <div class="level-progress-caption">${selfTotal} من ${overall} سؤال (${progressPct}%)</div>
+      </div>`;
+  }
+  selfBlockPauseStats.innerHTML = statsHtml;
+
+  // One-off notices (e.g. a type ran out of unused questions).
+  if (selfPauseNotices.length) {
+    selfBlockPauseNotice.textContent = selfPauseNotices.join(" ");
+    selfBlockPauseNotice.style.display = "block";
+    selfPauseNotices = [];
+  } else {
+    selfBlockPauseNotice.style.display = "none";
+  }
+
+  // The NEXT block's type — the prominent part.
+  selfBlockPauseTag.textContent = !hadPreviousBlock
+    ? (selfTotal > 0 ? "▶️ متابعة التحدي" : "🚀 النوع الأول")
+    : (sameType ? "🔁 نفس النوع مرة أخرى" : "🆕 النوع الجديد");
+  selfBlockPauseLabel.textContent = getTypeLabel(nextType);
   const blockAhead = Math.min(selfQueue.filter((t) => t === nextType).length, SELF_BLOCK_SIZE);
-  selfBlockPauseDesc.textContent = `التالي: ${blockAhead === 1 ? "سؤال واحد" : `${blockAhead} أسئلة`} من نوع "${getTypeLabel(nextType)}"`;
-  selfBlockPosition = 0; // reset — the upcoming block starts fresh
+  let desc = `${getTypeDescription(nextType)} — ${blockAhead === 1 ? "سؤال واحد" : `${blockAhead} أسئلة`} في هذا البلوك`;
+  if (!selfUnlimited) desc += ` (أجبت على ${selfTypeCounts[nextType] || 0} من ${selfCountPerType} من هذا النوع)`;
+  selfBlockPauseDesc.textContent = desc;
+
+  // Reset — the upcoming block starts fresh.
+  selfBlockPosition = 0;
+  selfBlockAnswered = 0;
+  selfBlockCorrect = 0;
 }
 
 selfBlockContinueBtn.addEventListener("click", async () => {
@@ -3364,51 +3651,30 @@ async function proceedToSelfQuestion() {
   selfFlashcardWrap.scrollIntoView({ behavior: "smooth", block: "start" });
 
   const type = selfQueue.shift();
+
+  // Never repeats a question (same ayah + same type) within a challenge.
+  const gen = await generateUniqueQuestion(type, selfRangeMinP, selfRangeMaxP, selfUsedKeys);
+  if (gen.status !== "ok") {
+    if (gen.status === "exhausted") handleSelfTypeExhausted(type);
+    else selfConsecutiveFailures++;
+
+    if (selfConsecutiveFailures >= 5) { await finishSelfChallenge(true); return; }
+    await nextSelfQuestion(); // re-decides: finish / pause for the next block / continue
+    return;
+  }
+  selfConsecutiveFailures = 0;
+  selfUsedKeys.add(gen.key);
+  saveSelfUsedKeys();
+  const { qa, built, page } = gen;
+
+  // Bookkeeping only once a real question exists.
   selfBlockPosition = (type === selfLastShownType) ? selfBlockPosition + 1 : 1;
   selfLastShownType = type;
   selfQuestionIndex++;
 
   selfProgressLabel.textContent = selfUnlimited
     ? `سؤال ${selfQuestionIndex} — النوع: ${getTypeLabel(type)} (${selfBlockPosition}/${SELF_BLOCK_SIZE})`
-    : `سؤال ${selfQuestionIndex} من ${selfTotalQuestions} — النوع: ${getTypeLabel(type)}`;
-
-  let qa = null;
-  let page = null;
-  let attempts = 0;
-  while (!qa && attempts < 6) {
-    attempts++;
-    if (type === "nextPageFirst" || type === "pageEndToNextFirst") page = randInt(selfRangeMinP, selfRangeMaxP - 1);
-    else if (type === "prevPageFirst" || type === "pageStartToPrevLast") page = randInt(selfRangeMinP + 1, selfRangeMaxP);
-    else page = randInt(selfRangeMinP, selfRangeMaxP);
-
-    try {
-      if (ADJACENT_TYPES.has(type)) {
-        qa = await pickAdjacentPageQA(type, page);
-      } else {
-        const ayahs = await fetchPageAyahs(page);
-        qa = pickQAFromPage(ayahs, type, page);
-      }
-    } catch (e) {
-      qa = null;
-    }
-    if (qa && !qa.q && !qa.audioOnly) qa = null;
-    if (qa && !qa.a) qa = null;
-  }
-
-  if (!qa) {
-    replenishSelfQueueIfNeeded();
-    if (selfQueue.length === 0) { await finishSelfChallenge(true); return; }
-    await proceedToSelfQuestion();
-    return;
-  }
-
-  const built = await buildChoices(qa, selfRangeMinP, selfRangeMaxP);
-  if (!built || built.choices.length < 2 || built.correctIndex < 0) {
-    replenishSelfQueueIfNeeded();
-    if (selfQueue.length === 0) { await finishSelfChallenge(true); return; }
-    await proceedToSelfQuestion();
-    return;
-  }
+    : `سؤال ${selfQuestionIndex} من ${selfQuestionIndex + selfQueue.length} — النوع: ${getTypeLabel(type)}`;
 
   selfCurrentCorrectIndex = built.correctIndex;
   selfCurrentQuestionType = type;
@@ -3433,6 +3699,9 @@ function finishSelfQuestion(isCorrect) {
   selfTotal += 1;
   if (isCorrect) selfCorrect += 1;
   selfTypeCounts[selfCurrentQuestionType] = (selfTypeCounts[selfCurrentQuestionType] || 0) + 1;
+  selfBlockAnswered += 1;
+  if (isCorrect) selfBlockCorrect += 1;
+  selfAttemptLog.push({ question_type: selfCurrentQuestionType, is_correct: isCorrect });
   updateSelfScoreBox();
 
   const flashClass = isCorrect ? "flash-correct" : "flash-wrong";
@@ -3441,7 +3710,7 @@ function finishSelfQuestion(isCorrect) {
 
   if (typeof recordAttempt === "function" && currentUser && selfActiveSessionId) {
     const now = new Date();
-    recordAttempt({
+    const pendingRecord = recordAttempt({
       questionType: selfCurrentQuestionType,
       page: selfCurrentPage,
       isCorrect,
@@ -3455,6 +3724,7 @@ function finishSelfQuestion(isCorrect) {
       if (result?.ok && result.xpGained) showXpPopup(result.xpGained);
       if (result?.ok && result.xp != null && typeof updateLevelBadge === "function") updateLevelBadge(result.xp);
     }).catch(() => { /* non-fatal: keep the quiz usable offline */ });
+    selfPendingRecords.push(pendingRecord);
   }
 
   setTimeout(() => { nextSelfQuestion(); }, 900);
@@ -3469,20 +3739,59 @@ selfEndBtn.addEventListener("click", async () => {
 
 // -------- results --------
 async function finishSelfChallenge(natural) {
+  stopSelfTimer();
+  selfAudioStop();
   selfPlaySection.style.display = "none";
+  selfBlockPause.style.display = "none";
   selfResultsSection.style.display = "block";
+  selfResultsBody.innerHTML = '<div class="status">جاري التحميل...</div>';
+  selfResultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
 
-  if (currentUser && selfActiveSessionId && typeof finishActiveSession === "function") {
-    await finishActiveSession(selfActiveSessionId);
+  const finishedSessionId = selfActiveSessionId;
+
+  // Let in-flight attempt syncs land first, so the stats fetched below
+  // include the very last answers.
+  if (selfPendingRecords.length) await Promise.allSettled(selfPendingRecords);
+  selfPendingRecords = [];
+
+  if (currentUser && finishedSessionId && typeof finishActiveSession === "function") {
+    await finishActiveSession(finishedSessionId);
   }
+  clearSelfUsedKeys(finishedSessionId);
   syncActiveSessionId(null);
 
   const pct = selfTotal > 0 ? Math.round((selfCorrect / selfTotal) * 100) : 0;
-  selfResultsBody.innerHTML = `
+  const exhaustedNote = selfExhaustedTypes.size
+    ? `<div class="challenge-notice">نفدت الأسئلة المتاحة (دون تكرار) من: ${[...selfExhaustedTypes].map(getTypeLabel).join("، ")}.</div>`
+    : "";
+
+  let html = `
     <div class="stat-summary">
       <div class="stat-big" style="font-size:20px;">${selfCorrect} / ${selfTotal} (${pct}%)</div>
       <div class="stat-caption">${natural ? "انتهى الاختبار 🎉" : "تم إنهاء الاختبار يدويًا"}</div>
-    </div>`;
+    </div>${exhaustedNote}`;
+
+  if (currentUser && finishedSessionId && typeof renderSessionsOverviewInto === "function") {
+    // Signed in: the same sessions overview as 👤 ملفي الشخصي, with
+    // this challenge selected.
+    html += `
+      <div class="section-label">📊 جميع تحدياتي الذاتية</div>
+      <div id="selfResultsOverview"></div>
+      <button id="selfResultsProfileBtn" type="button" class="btn small ghost" style="width:100%; margin-top:12px;">👤 فتح ملفي الشخصي (لوحة الصدارة وحذف الجلسات)</button>`;
+    selfResultsBody.innerHTML = html;
+    document.getElementById("selfResultsProfileBtn").addEventListener("click", () => {
+      if (typeof switchView === "function") switchView("profile");
+    });
+    await renderSessionsOverviewInto(document.getElementById("selfResultsOverview"), finishedSessionId);
+  } else {
+    // Guest: nothing is saved anywhere, so show this run's own
+    // per-type breakdown instead.
+    html += `
+      <div class="section-label">📊 تفاصيل هذا التحدي</div>
+      <div class="stat-rows">${typeof buildTypeRowsHtml === "function" ? buildTypeRowsHtml(selfAttemptLog) : ""}</div>
+      <div class="hint" style="text-align:center; margin-top:12px;">سجّل الدخول لتُحفظ تحدياتك الذاتية وتظهر هنا كلها مع إحصائياتها.</div>`;
+    selfResultsBody.innerHTML = html;
+  }
 }
 
 function resetSelfToSetup() {

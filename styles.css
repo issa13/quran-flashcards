@@ -1494,6 +1494,79 @@ select:focus, input:focus {
   padding: 5px 14px;
 }
 
+/* Notice line (e.g. "a type ran out of unused questions") */
+.challenge-notice {
+  margin-top: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.8;
+  color: var(--gold);
+  background: rgba(var(--gold-rgb), 0.12);
+  border: 1px solid rgba(var(--gold-rgb), 0.35);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+}
+
+/* -------- ذاتي: block-pause screen -------- */
+/* The block just finished: small and muted... */
+.self-block-done {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* ...where the whole challenge stands... */
+.self-block-stats {
+  margin: 14px 0 2px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.self-stat-chip {
+  padding: 9px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--card-alt);
+  border: 1.5px solid rgba(var(--ink-rgb), 0.1);
+}
+.self-stat-value {
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--accent-text);
+}
+.self-stat-pct {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--muted);
+}
+.self-stat-label {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.self-block-progress {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+}
+
+/* ...and the NEXT type: tag + big green label, so it's unmistakable. */
+.self-block-tag {
+  margin-top: 18px;
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--gold);
+  background: rgba(var(--gold-rgb), 0.12);
+  border-radius: 999px;
+  padding: 4px 14px;
+}
+#selfBlockPause .challenge-type-intro-label {
+  margin-top: 10px;
+  font-size: 26px;
+  line-height: 1.5;
+}
+
 /* -------- Stats / leaderboard -------- */
 .stats-body { margin-top: 4px; }
 

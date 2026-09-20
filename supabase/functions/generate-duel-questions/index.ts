@@ -220,10 +220,6 @@ function pickQAFromPage(ayahs: Ayah[], type: string, page: number): QA | null {
     const idx = randInt(1, ayahs.length - 1);
     return { q: clean(ayahs[idx].text), a: clean(ayahs[idx - 1].text), kind: "text", qAyahNumber: ayahs[idx].number };
   }
-  if (type === "next") {
-    const idx = randInt(0, ayahs.length - 2);
-    return { q: clean(ayahs[idx].text), a: clean(ayahs[idx + 1].text), kind: "text", qAyahNumber: ayahs[idx].number };
-  }
   if (type === "surah") {
     const candidate = ayahs[randInt(0, ayahs.length - 1)];
     return { q: clean(candidate.text), a: getSurahName(candidate), kind: "surah", qAyahNumber: candidate.number };
@@ -368,9 +364,20 @@ async function buildChoices(qa: QA, minP: number, maxP: number): Promise<{ choic
 }
 
 // -------- one question, with retries (mirrors app.js's generateCard) --------
-async function generateOneQuestion(type: string, minP: number, maxP: number): Promise<GeneratedQuestion | null> {
+// `usedKeys` holds "type|ayah" keys of questions already generated for THIS
+// duel — the same ayah is never asked twice as the same type (mirrors the
+// no-repeat rule app.js applies to every other challenge mode). Picking is
+// random-with-retry here (the client uses exact pools): the attempt budget
+// is larger to find an unused question, and if a type genuinely runs out
+// the slot is simply skipped (the duel gets fewer questions rather than a repeat).
+async function generateOneQuestion(
+  type: string,
+  minP: number,
+  maxP: number,
+  usedKeys: Set<string>,
+): Promise<GeneratedQuestion | null> {
   let attempts = 0;
-  while (attempts < 6) {
+  while (attempts < 60) {
     attempts++;
     let page: number;
     if (type === "nextPageFirst" || type === "pageEndToNextFirst") {
@@ -396,9 +403,13 @@ async function generateOneQuestion(type: string, minP: number, maxP: number): Pr
     if (qa && !qa.a) qa = null;
     if (!qa) continue;
 
+    const key = `${type}|${qa.qAyahNumber}`;
+    if (usedKeys.has(key)) continue;
+
     const built = await buildChoices(qa, minP, maxP);
     if (!built || built.choices.length < 2 || built.correctIndex < 0) continue;
 
+    usedKeys.add(key);
     return {
       question_type: type,
       page,
@@ -485,8 +496,9 @@ Deno.serve(async (req: Request) => {
     const queue: string[] = orderedTypes.flatMap((t) => Array(countPerType).fill(t));
 
     const generated: GeneratedQuestion[] = [];
+    const usedKeys = new Set<string>();
     for (const type of queue) {
-      const q = await generateOneQuestion(type, duel.range_min, duel.range_max);
+      const q = await generateOneQuestion(type, duel.range_min, duel.range_max, usedKeys);
       if (q) generated.push(q);
     }
 

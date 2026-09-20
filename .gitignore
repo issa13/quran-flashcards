@@ -1,0 +1,4 @@
+# --- add these lines to your existing .gitignore ---
+node_modules/
+www/
+.DS_Store

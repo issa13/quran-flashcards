@@ -32,6 +32,11 @@ Everything else — the Quran text itself, page layout, search, question generat
 | `quran-index/` | 2 JSON files, derived from the above (see §3). |
 | `download-mushaf-layout.sh` | One-time script that downloads `mushaf-layout/`. |
 | `derive-quran-index.js` | One-time script that builds `quran-index/` from `mushaf-layout/`. |
+| `vendor/`, `fonts/` | **Generated** by `npm run vendor` (§9): the Supabase browser bundle and the three web fonts, self-hosted so nothing is loaded from a CDN. Committed to the repo. |
+| `package.json`, `scripts/` | Build tooling only (vendoring + assembling `www/`). The app itself still has no build step. |
+| `capacitor.config.json` | Settings for the native iOS/Android wrapper (§9). |
+| `www/` | **Generated** by `npm run build:web` — the folder Capacitor packages into the native apps. Git-ignored, safe to delete. |
+| `android/`, `ios/` | The native projects Capacitor creates (§9). |
 
 ---
 
@@ -117,7 +122,7 @@ This is the part that trips people up. **How** you open the app matters:
 Once served this way, the address bar shows `http://localhost:...` — not `file://` — and local fetches work normally, with or without an actual internet connection.
 
 ### The other thing that was silently breaking things
-Until recently, the Supabase login library was loaded from an internet CDN with **no fallback** — if that failed to load (no internet, ad-blocker, CDN hiccup), the whole app could break instead of just quietly switching to guest mode. That's now fixed: if the library fails to load, the app falls back to guest mode automatically, the same way it does if `config.js` is left unfilled.
+Until recently, the Supabase login library and the fonts were loaded from internet CDNs. Both are now **self-hosted** (`vendor/supabase.js`, `fonts/`, see §9), so the app has no CDN dependency at all. If the Supabase library still fails to load for any reason, the app falls back to guest mode automatically, the same way it does if `config.js` is left unfilled.
 
 ---
 
@@ -126,7 +131,8 @@ Until recently, the Supabase login library was loaded from an internet CDN with 
 | Symptom | Likely cause |
 |---|---|
 | Quran tab / quiz says "تعذّر تحميل..." mentioning `quran-index` or `mushaf-layout` | Those folders aren't in the right place, or the derive script wasn't run — see §3. |
-| Nothing loads at all, console errors mention `supabase` | You're on an old copy of `supabase-client.js` without the fallback fix — see §6. |
+| Nothing loads at all, console errors mention `supabase` | `vendor/supabase.js` is missing — run `npm run vendor` and commit `vendor/` (§9). |
+| Quran text looks wrong / wrong font | `fonts/` is missing — run `npm run vendor` and commit `fonts/` (§9). |
 | Quran tab works but login doesn't | Expected offline — login always needs Supabase (§5). |
 | Everything works online, breaks with wifi off | Check whether you're running via `file://` (§6) before assuming it's a code bug. |
 
@@ -135,5 +141,37 @@ Until recently, the Supabase login library was loaded from an internet CDN with 
 ## 8. What's still on the roadmap (discussed, not yet built)
 
 - **True offline (PWA)**: a service worker to cache the app shell itself, so it loads with zero connection at all (right now, "no internet needed" applies to the *data*, but the browser still needs to fetch the HTML/CSS/JS files themselves the first time).
-- **Self-hosting the Supabase SDK file** (instead of the CDN) — reduces one more external dependency, though login itself will always need real internet regardless.
+- ~~Self-hosting the Supabase SDK file~~ — done (§9), along with the fonts.
 - **Local queue for signed-in quiz attempts** made offline, synced once back online (currently, signed-in scoring simply requires a connection at the moment you answer).
+
+---
+
+## 9. One codebase for the website AND the native apps
+
+The repo root is the **single source of truth**. The same `index.html`, CSS and JS are what GitHub Pages serves *and* what gets packaged into the iOS/Android apps by [Capacitor](https://capacitorjs.com) — there is no separate "mobile version". Native-only behaviour (Android back button, status bar, etc.) will live in one file, `native-shell.js`, that does nothing unless it detects it's running inside the native shell, so the website is never affected.
+
+```
+repo root  ──►  GitHub Pages serves it directly            (the website, as always)
+     │
+     └─ npm run build:web ─► www/ ─► npx cap sync ─► Xcode / Android Studio   (the apps)
+```
+
+### One-time setup
+```bash
+npm install -D --save-exact @supabase/supabase-js
+npm install -D @fontsource/tajawal @fontsource/aref-ruqaa @fontsource/amiri-quran @capacitor/cli
+npm install @capacitor/core @capacitor/android @capacitor/ios
+npm run vendor        # creates vendor/ and fonts/  — COMMIT them (Pages needs them too)
+```
+
+### Day to day
+- **Website:** commit and push, exactly as before. Bump `QF_ASSET_VERSION` (and the `?v=` on the CSS links) in `index.html` when you deploy, so browsers drop stale cache.
+- **Apps:** `npm run sync` rebuilds `www/` and copies it into the native projects; `npm run android` / `npm run ios` do that and open Android Studio / Xcode.
+- Editing an app file? Edit it in the repo root, never inside `www/`, `android/` or `ios/` — those are regenerated.
+
+### Question de-duplication (how repeats are prevented)
+A question is identified by **(type, question ayah)**.
+- **⚔️ التحديات** (محلي / مباشر / ذاتي): the same question never repeats within one challenge. If a type runs out of unused questions in the chosen range (e.g. "ayah count" over 7 pages can only ever produce 7), the rest of that type is skipped with a notice instead of repeating, and the challenge is simply shorter.
+- **📝 اختبارات:** the same question doesn't repeat within the next 25 questions. In a range so small that a type has fewer than 25 possible questions, the oldest one repeats first rather than blocking you.
+- 🌐 مباشر builds its questions on the server (`index.ts`) with the same rule, so **redeploy the Edge Function** (`supabase functions deploy generate-duel-questions`) after updating it.
+- ذاتي remembers what it already asked in `localStorage` (per session), so refreshing mid-challenge can't cause repeats either.

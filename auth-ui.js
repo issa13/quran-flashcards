@@ -558,6 +558,31 @@ async function renderSelectedSession() {
   deleteSessionBtn.style.display = isActiveSession ? "none" : "";
 }
 
+// Per-question-type accuracy bars for a list of attempts
+// ([{ question_type, is_correct }]) — shared by the profile's session
+// stats, the ذاتي results screen, and the guest results breakdown.
+function buildTypeRowsHtml(attempts) {
+  const byType = {};
+  (attempts || []).forEach((a) => {
+    byType[a.question_type] = byType[a.question_type] || { total: 0, correct: 0 };
+    byType[a.question_type].total += 1;
+    if (a.is_correct) byType[a.question_type].correct += 1;
+  });
+
+  return Object.entries(byType)
+    .sort((a, b) => b[1].total - a[1].total)
+    .map(([type, s]) => {
+      const p = Math.round((s.correct / s.total) * 100);
+      return `
+        <div class="stat-row">
+          <div class="stat-row-label">${getTypeLabel(type)}</div>
+          <div class="stat-row-bar"><div class="stat-row-fill" style="width:${p}%"></div></div>
+          <div class="stat-row-value">${s.correct}/${s.total} (${p}%)</div>
+        </div>`;
+    })
+    .join("");
+}
+
 function renderStatsHtml(attempts, session) {
   const total = session?.total_answers || 0;
   const correct = session?.total_correct || 0;
@@ -572,25 +597,7 @@ function renderStatsHtml(attempts, session) {
 
   const pct = Math.round((correct / total) * 100);
 
-  const byType = {};
-  attempts.forEach((a) => {
-    byType[a.question_type] = byType[a.question_type] || { total: 0, correct: 0 };
-    byType[a.question_type].total += 1;
-    if (a.is_correct) byType[a.question_type].correct += 1;
-  });
-
-  const rows = Object.entries(byType)
-    .sort((a, b) => b[1].total - a[1].total)
-    .map(([type, s]) => {
-      const p = Math.round((s.correct / s.total) * 100);
-      return `
-        <div class="stat-row">
-          <div class="stat-row-label">${getTypeLabel(type)}</div>
-          <div class="stat-row-bar"><div class="stat-row-fill" style="width:${p}%"></div></div>
-          <div class="stat-row-value">${s.correct}/${s.total} (${p}%)</div>
-        </div>`;
-    })
-    .join("");
+  const rows = buildTypeRowsHtml(attempts);
 
   return `
     <div class="stat-summary">
@@ -599,6 +606,64 @@ function renderStatsHtml(attempts, session) {
     </div>
     <div class="stat-rows">${rows}</div>
   `;
+}
+
+// Read-only copy of the profile's "📊 الجلسات" card (sessions table +
+// the selected session's stats), rendered into any container — used by
+// the ذاتي results screen so finishing a challenge shows the same
+// overview as the profile page. It's class-based (no element ids), so
+// it can coexist with the profile's own card. Managing sessions
+// (leaderboard toggle / delete) stays in the profile.
+async function renderSessionsOverviewInto(containerEl, preferSessionId) {
+  if (!containerEl) return;
+  containerEl.innerHTML = '<div class="status">جاري التحميل...</div>';
+
+  const sessions = await fetchMySessions();
+  if (!sessions.length) {
+    containerEl.innerHTML = '<div class="status">لا توجد جلسات محفوظة بعد.</div>';
+    return;
+  }
+
+  let selectedId = sessions.some((s) => s.session_id === preferSessionId) ? preferSessionId : sessions[0].session_id;
+
+  async function draw() {
+    const rowsHtml = sessions.map((s) => {
+      const answers = s.total_answers || 0;
+      const acc = answers ? `${Math.round((100 * (s.total_correct || 0)) / answers)}%` : "—";
+      return `
+        <tr class="session-row${s.session_id === selectedId ? " active" : ""}" data-id="${s.session_id}">
+          <td>${pageRangeLabel(s) || "—"}</td>
+          <td>${answers}</td>
+          <td>${acc}</td>
+          <td class="session-row-badge">${s.is_public ? "🏆" : ""}</td>
+        </tr>`;
+    }).join("");
+
+    containerEl.innerHTML = `
+      <div class="sessions-table-wrap">
+        <table class="sessions-table">
+          <thead><tr><th>النطاق</th><th>الأسئلة</th><th>الدقة</th><th></th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+      <div class="sessions-overview-stats stats-body"><div class="status">جاري التحميل...</div></div>`;
+
+    containerEl.querySelectorAll(".session-row").forEach((row) => {
+      row.addEventListener("click", () => {
+        const id = Number(row.dataset.id);
+        if (id === selectedId) return;
+        selectedId = id;
+        draw();
+      });
+    });
+
+    const session = sessions.find((s) => s.session_id === selectedId);
+    const attempts = await fetchSessionAttempts(selectedId);
+    const statsEl = containerEl.querySelector(".sessions-overview-stats");
+    if (statsEl && selectedId === session.session_id) statsEl.innerHTML = renderStatsHtml(attempts, session);
+  }
+
+  await draw();
 }
 
 // -------- leaderboard modal (fair, per-session ranking) --------
